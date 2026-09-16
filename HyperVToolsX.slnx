@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="../HyperVToolsX.Core/HyperVToolsX.Core.csproj" />
+  <Project Path="../HyperVToolsX.Export/HyperVToolsX.Export.csproj" />
+  <Project Path="../HyperVToolsX.Infrastructure/HyperVToolsX.Infrastructure.csproj" />
+  <Project Path="../HyperVToolsX.Tests/HyperVToolsX.Tests.csproj" />
+  <Project Path="HyperVToolsX.App.csproj" />
+</Solution>
