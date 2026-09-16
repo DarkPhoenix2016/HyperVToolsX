@@ -1,0 +1,12 @@
+Y:\HyperVToolsX\HyperVToolsX.Core\bin\Debug\net10.0\HyperVToolsX.Core.deps.json
+Y:\HyperVToolsX\HyperVToolsX.Core\bin\Debug\net10.0\HyperVToolsX.Core.dll
+Y:\HyperVToolsX\HyperVToolsX.Core\bin\Debug\net10.0\HyperVToolsX.Core.pdb
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.GeneratedMSBuildEditorConfig.editorconfig
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.AssemblyInfoInputs.cache
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.AssemblyInfo.cs
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.csproj.CoreCompileInputs.cache
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.dll
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\refint\HyperVToolsX.Core.dll
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.pdb
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\ref\HyperVToolsX.Core.dll
+Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVTo.32F69A23.Up2Date
