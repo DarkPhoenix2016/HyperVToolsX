@@ -15,6 +15,9 @@ public class HyperVProvider : IHyperVProvider
     {
         _powerShell = powerShell;
     }
+
+    // <summary> Host information is retrieved using the Get-VMHost cmdlet. </summary>
+
     public async Task<HyperVHost> GetHostAsync(string computerName, CancellationToken cancellationToken = default)
     {
         var result = await _powerShell.ExecutePipelineAsync(
@@ -39,6 +42,125 @@ public class HyperVProvider : IHyperVProvider
             IsConnected = true
         };
     }
+    public async Task<HostStorageInfo> GetHostStorageAsync(string computerName,CancellationToken cancellationToken = default)
+    {
+        var result = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-VMHost",
+                new Dictionary<string, object?>
+                {
+                    ["ComputerName"] = computerName
+                }
+            ));
+
+        var item = result.FirstOrDefault();
+
+        if (item == null)
+        {
+            throw new InvalidOperationException(
+                $"Get-VMHost returned no data for '{computerName}'.");
+        }
+
+        return new HostStorageInfo
+        {
+            HostName = GetString(item, "ComputerName"),
+            ComputerName = GetString(item, "ComputerName"),
+
+            VirtualHardDiskPath =
+                GetString(item, "VirtualHardDiskPath"),
+
+            VirtualMachinePath =
+                GetString(item, "VirtualMachinePath"),
+
+            ParentSnapshotPath =
+                GetString(item, "ParentSnapshotPath"),
+
+            MemoryCapacity =
+                GetLong(item, "MemoryCapacity"),
+
+            LogicalProcessorCount =
+                GetInt(item, "LogicalProcessorCount"),
+
+            MaximumStorageMigrations =
+                GetInt(item, "MaximumStorageMigrations"),
+
+            MaximumVirtualMachineMigrations =
+                GetInt(item, "MaximumVirtualMachineMigrations"),
+
+            VirtualMachineMigrationEnabled =
+                GetBool(item, "VirtualMachineMigrationEnabled"),
+
+            VirtualMachineMigrationAuthenticationType =
+                GetString(
+                    item,
+                    "VirtualMachineMigrationAuthenticationType"),
+
+            VirtualMachineMigrationPerformanceOption =
+                GetString(
+                    item,
+                    "VirtualMachineMigrationPerformanceOption"),
+
+            UseAnyNetworkForMigration =
+                GetBool(item, "UseAnyNetworkForMigration"),
+
+            EnableEnhancedSessionMode =
+                GetBool(item, "EnableEnhancedSessionMode"),
+
+            IsDeleted =
+                GetBool(item, "IsDeleted")
+        };
+    }
+    public async Task<OperatingSystemInfo> GetOperatingSystemAsync( string computerName,CancellationToken cancellationToken = default)
+    {
+        var result = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-CimInstance",
+                new Dictionary<string, object?>
+                {
+                    ["ClassName"] = "Win32_OperatingSystem",
+                    ["ComputerName"] = computerName
+                }
+            ));
+
+        var item = result.FirstOrDefault();
+
+        if (item == null)
+        {
+            throw new InvalidOperationException(
+                $"Win32_OperatingSystem returned no data for '{computerName}'.");
+        }
+
+        return new OperatingSystemInfo
+        {
+            ComputerName =
+                GetString(item, "CSName"),
+
+            Caption =
+                GetString(item, "Caption"),
+
+            Version =
+                GetString(item, "Version"),
+
+            BuildNumber =
+                GetString(item, "BuildNumber"),
+
+            OSArchitecture =
+                GetString(item, "OSArchitecture"),
+
+            LastBootUpTime =
+                GetDateTime(item, "LastBootUpTime"),
+
+            TotalVisibleMemorySizeKb =
+                GetLong(item, "TotalVisibleMemorySize"),
+
+            FreePhysicalMemoryKb =
+                GetLong(item, "FreePhysicalMemory")
+        };
+    }
+
+    // <summary> Retrieves a list of virtual machines on the specified Hyper-V host. </summary>
     public async Task<IReadOnlyList<HyperVVirtualMachine>> GetVirtualMachinesAsync(string computerName, CancellationToken cancellationToken =default)
     {
         var result = await _powerShell.ExecutePipelineAsync(cancellationToken, 
@@ -163,73 +285,6 @@ public class HyperVProvider : IHyperVProvider
 
         return machines;
     }
-    public async Task<IReadOnlyList<VmNetworkAdapter>> GetNetworkAdaptersAsync(string computerName,CancellationToken cancellationToken = default)
-    {
-        var adapters = await _powerShell.ExecutePipelineAsync(
-            cancellationToken,
-            (
-                "Get-VM",
-                new Dictionary<string, object?>
-                {
-                    ["ComputerName"] = computerName
-                }
-            ),
-            (
-                "Get-VMNetworkAdapter",
-                null
-            )
-        );
-
-        var result = new List<VmNetworkAdapter>();
-
-        foreach (var item in adapters)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var vmName = GetString(item, "VMName");
-            var adapterName = GetString(item, "Name");
-
-            var adapter = new VmNetworkAdapter
-            {
-                VmName = vmName,
-                HostName = computerName,
-                Name = adapterName,
-                SwitchName = GetString(item, "SwitchName"),
-                MacAddress = GetString(item, "MacAddress"),
-                Status = string.Join(", ", GetStringList(item, "Status"))
-            };
-
-            var ipAddresses = GetStringList(item, "IPAddresses");
-
-            foreach (var ipAddress in ipAddresses)
-            {
-                if (string.IsNullOrWhiteSpace(ipAddress))
-                {
-                    continue;
-                }
-
-                if (!System.Net.IPAddress.TryParse(ipAddress, out var parsedAddress))
-                {
-                    continue;
-                }
-
-                if (parsedAddress.AddressFamily ==
-                    System.Net.Sockets.AddressFamily.InterNetwork)
-                {
-                    adapter.IPv4Addresses.Add(ipAddress);
-                }
-                else if (parsedAddress.AddressFamily ==
-                         System.Net.Sockets.AddressFamily.InterNetworkV6)
-                {
-                    adapter.IPv6Addresses.Add(ipAddress);
-                }
-            }
-
-            result.Add(adapter);
-        }
-
-        return result;
-    }
     public async Task<IReadOnlyList<VmProcessorInfo>> GetVmProcessorsAsync(string computerName, CancellationToken cancellationToken = default)
     {
         var result = await _powerShell.ExecutePipelineAsync(
@@ -316,40 +371,72 @@ public class HyperVProvider : IHyperVProvider
 
         return memory;
     }
-    public async Task<IReadOnlyList<VmDiskInfo>> GetVmDisksAsync(string computerName, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<VmNetworkAdapter>> GetNetworkAdaptersAsync(string computerName, CancellationToken cancellationToken = default)
     {
-        var result = await _powerShell.ExecutePipelineAsync(
+        var adapters = await _powerShell.ExecutePipelineAsync(
             cancellationToken,
-            ("Get-VM", new Dictionary<string, object?>
-            {
-                ["ComputerName"] = computerName
-            }),
-            ("Get-VMHardDiskDrive", null));
+            (
+                "Get-VM",
+                new Dictionary<string, object?>
+                {
+                    ["ComputerName"] = computerName
+                }
+            ),
+            (
+                "Get-VMNetworkAdapter",
+                null
+            )
+        );
 
-        var disks = new List<VmDiskInfo>();
+        var result = new List<VmNetworkAdapter>();
 
-        foreach (var disk in result)
+        foreach (var item in adapters)
         {
-            disks.Add(new VmDiskInfo
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var vmName = GetString(item, "VMName");
+            var adapterName = GetString(item, "Name");
+
+            var adapter = new VmNetworkAdapter
             {
-                VmName = GetString(disk, "VMName"),
-                HostName = GetString(disk, "ComputerName", computerName),
-                Path = GetString(disk, "Path"),
-                DiskNumber = GetString(disk, "DiskNumber"),
-                MaximumIOPS = GetLong(disk, "MaximumIOPS"),
-                MinimumIOPS = GetLong(disk, "MinimumIOPS"),
-                QoSPolicyID = GetString(disk, "QoSPolicyId"),
-                SupportPersistentReservations = GetBool(disk, "SupportsPersistentReservations"),
-                WriteHardeningMethod = GetString(disk, "WriteHardeningMethod"),
-                ControllerLocation = GetInt(disk, "ControllerLocation"),
-                ControllerNumber = GetInt(disk, "ControllerNumber"),
-                ControllerType = GetString(disk, "ControllerType"),
-                Name = GetString(disk, "Name"),
-                PoolName = GetString(disk, "Pool")
-            });
+                VmName = vmName,
+                HostName = computerName,
+                Name = adapterName,
+                SwitchName = GetString(item, "SwitchName"),
+                MacAddress = GetString(item, "MacAddress"),
+                Status = string.Join(", ", GetStringList(item, "Status"))
+            };
+
+            var ipAddresses = GetStringList(item, "IPAddresses");
+
+            foreach (var ipAddress in ipAddresses)
+            {
+                if (string.IsNullOrWhiteSpace(ipAddress))
+                {
+                    continue;
+                }
+
+                if (!System.Net.IPAddress.TryParse(ipAddress, out var parsedAddress))
+                {
+                    continue;
+                }
+
+                if (parsedAddress.AddressFamily ==
+                    System.Net.Sockets.AddressFamily.InterNetwork)
+                {
+                    adapter.IPv4Addresses.Add(ipAddress);
+                }
+                else if (parsedAddress.AddressFamily ==
+                         System.Net.Sockets.AddressFamily.InterNetworkV6)
+                {
+                    adapter.IPv6Addresses.Add(ipAddress);
+                }
+            }
+
+            result.Add(adapter);
         }
 
-        return disks;
+        return result;
     }
     public async Task<IReadOnlyList<VmNetworkVlanInfo>> GetVmNetworkVlansAsync(string computerName,CancellationToken cancellationToken = default)
     {
@@ -490,6 +577,461 @@ public class HyperVProvider : IHyperVProvider
 
         return services;
     }
+    public async Task<IReadOnlyList<VmStorageInfo>> GetVmStorageAsync(string computerName,CancellationToken cancellationToken = default)
+    {
+        var result = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-VM",
+                new Dictionary<string, object?>
+                {
+                    ["ComputerName"] = computerName
+                }
+            ));
+
+        var storage = new List<VmStorageInfo>(result.Count);
+
+        foreach (var item in result)
+        {
+            storage.Add(new VmStorageInfo
+            {
+                VmName = GetString(item, "VMName"),
+                HostName = GetString(item, "ComputerName", computerName),
+                VMId = GetString(item, "VMId"),
+                ParentCheckpointId = GetString(item, "ParentCheckpointId"),
+                ParentCheckpointName = GetString(item, "ParentCheckpointName"),
+                CheckpointFileLocation = GetString(item, "CheckpointFileLocation"),
+                ConfigurationLocation = GetString(item, "ConfigurationLocation"),
+                GuestStatePath = GetString(item, "GuestStatePath"),
+                SmartPagingFileInUse = GetBool(item, "SmartPagingFileInUse"),
+                SmartPagingFilePath = GetString(item, "SmartPagingFilePath"),
+                SnapshotFileLocation = GetString(item, "SnapshotFileLocation"),
+                Path = GetString(item, "Path"),
+                SizeOfSystemFiles = GetLong(item, "SizeOfSystemFiles"),
+                ParentSnapshotId = GetString(item, "ParentSnapshotId"),
+                ParentSnapshotName = GetString(item, "ParentSnapshotName"),
+                AutomaticStartAction = GetString(item, "AutomaticStartAction"),
+                AutomaticStartDelay = GetInt(item, "AutomaticStartDelay"),
+                AutomaticStopAction = GetString(item, "AutomaticStopAction"),
+                AutomaticCriticalErrorAction = GetString(item, "AutomaticCriticalErrorAction"),
+                AutomaticCriticalErrorActionTimeout =
+                    GetInt(item, "AutomaticCriticalErrorActionTimeout"),
+                AutomaticCheckpointsEnabled =
+                    GetBool(item, "AutomaticCheckpointsEnabled"),
+                State = GetString(item, "State"),
+                Status = GetString(item, "Status"),
+                CheckpointType = GetString(item, "CheckpointType"),
+                ResourceMeteringEnabled =
+                    GetBool(item, "ResourceMeteringEnabled"),
+                EnhancedSessionTransportType =
+                    GetString(item, "EnhancedSessionTransportType"),
+                GuestStateIsolationType =
+                    GetString(item, "GuestStateIsolationType"),
+                VirtualMachineType =
+                    GetString(item, "VirtualMachineType"),
+                VirtualMachineSubType =
+                    GetString(item, "VirtualMachineSubType"),
+                Version = GetString(item, "Version"),
+                GuestControlledCacheTypes =
+                    GetBool(item, "GuestControlledCacheTypes"),
+                LowMemoryMappedIoSpace =
+                    GetLong(item, "LowMemoryMappedIoSpace"),
+                HighMemoryMappedIoSpace =
+                    GetLong(item, "HighMemoryMappedIoSpace"),
+                HighMemoryMappedIoBaseAddress =
+                    GetLong(item, "HighMemoryMappedIoBaseAddress"),
+                LockOnDisconnect =
+                    GetString(item, "LockOnDisconnect"),
+                CreationTime = GetDateTime(item, "CreationTime"),
+                IsDeleted = GetBool(item, "IsDeleted")
+            });
+        }
+
+        return storage;
+    }
+    public async Task<IReadOnlyList<VmDiskInfo>> GetVmDisksAsync(string computerName,CancellationToken cancellationToken = default)
+    {
+        var result = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-VM",
+                new Dictionary<string, object?>
+                {
+                    ["ComputerName"] = computerName
+                }
+            ),
+            ("Get-VMHardDiskDrive", null));
+
+        var disks = new List<VmDiskInfo>(result.Count);
+
+        foreach (var item in result)
+        {
+            disks.Add(new VmDiskInfo
+            {
+                VmName = GetString(item, "VMName"),
+                HostName = GetString(item, "ComputerName", computerName),
+                Path = GetString(item, "Path"),
+                DiskNumber = GetString(item, "DiskNumber"),
+                MaximumIOPS = GetLong(item, "MaximumIOPS"),
+                MinimumIOPS = GetLong(item, "MinimumIOPS"),
+                QoSPolicyID = GetString(item, "QoSPolicyID"),
+                SupportPersistentReservations =GetBool(item, "SupportPersistentReservations"),
+                WriteHardeningMethod = GetString(item, "WriteHardeningMethod"),
+                ControllerLocation =GetInt(item, "ControllerLocation"),
+                ControllerNumber =GetInt(item, "ControllerNumber"),
+                ControllerType =GetString(item, "ControllerType"),
+                Name = GetString(item, "Name"),
+                PoolName = GetString(item, "PoolName")
+            });
+        }
+
+        return disks;
+    }
+    public async Task<IReadOnlyList<VhdInfo>> GetVhdsAsync(string computerName,CancellationToken cancellationToken = default)
+    {
+        var diskResult = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-VM",
+                new Dictionary<string, object?>
+                {
+                    ["ComputerName"] = computerName
+                }
+            ),
+            ("Get-VMHardDiskDrive", null));
+
+        var vhds = new List<VhdInfo>();
+
+        foreach (var disk in diskResult)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var path = GetString(disk, "Path");
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            var result = await _powerShell.ExecutePipelineAsync(
+                cancellationToken,
+                (
+                    "Get-VHD",
+                    new Dictionary<string, object?>
+                    {
+                        ["ComputerName"] = computerName,
+                        ["Path"] = path
+                    }
+                ));
+
+            foreach (var item in result)
+            {
+                vhds.Add(new VhdInfo
+                {
+                    HostName = computerName,
+                    Path = GetString(item, "Path"),
+                    VhdFormat = GetString(item, "VhdFormat"),
+                    VhdType = GetString(item, "VhdType"),
+                    FileSize = GetLong(item, "FileSize"),
+                    Size = GetLong(item, "Size"),
+                    MinimumSize = GetLong(item, "MinimumSize"),
+                    LogicalSectorSize = GetLong(item, "LogicalSectorSize"),
+                    PhysicalSectorSize = GetLong(item, "PhysicalSectorSize"),
+                    BlockSize = GetLong(item, "BlockSize"),
+                    ParentPath = GetString(item, "ParentPath"),
+                    DiskIdentifier = GetString(item, "DiskIdentifier"),
+                    FragmentationPercentage =
+                        GetString(item, "FragmentationPercentage"),
+                    Alignment = GetInt(item, "Alignment"),
+                    Attached = GetBool(item, "Attached"),
+                    DiskNumber = GetString(item, "DiskNumber"),
+                    IsPMEMCompatible =
+                        GetBool(item, "IsPMEMCompatible"),
+                    AddressAbstractionType =
+                        GetString(item, "AddressAbstractionType")
+                });
+            }
+        }
+
+        return vhds;
+    }
+    public async Task<IReadOnlyList<VmReplicationInfo>> GetVmReplicationAsync(string computerName,CancellationToken cancellationToken = default)
+    {
+        var result = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-VMReplication",
+                new Dictionary<string, object?>
+                {
+                    ["ComputerName"] = computerName
+                }
+            ));
+
+        var replications = new List<VmReplicationInfo>();
+
+        foreach (var item in result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            replications.Add(new VmReplicationInfo
+            {
+                VmName = GetString(item, "VMName"),
+                VMId = GetString(item, "VMId"),
+
+                ReplicationState =
+                    GetString(item, "ReplicationState"),
+
+                ReplicationHealth =
+                    GetString(item, "ReplicationHealth"),
+
+                ReplicationMode =
+                    GetString(item, "ReplicationMode"),
+
+                PrimaryServer =
+                    GetString(item, "PrimaryServer"),
+
+                ReplicaServer =
+                    GetString(item, "ReplicaServer"),
+
+                ReplicaServerPort =
+                    GetInt(item, "ReplicaServerPort"),
+
+                AuthenticationType =
+                    GetString(item, "AuthenticationType"),
+
+                CertificateThumbprint =
+                    GetString(item, "CertificateThumbprint"),
+
+                CompressionEnabled =
+                    GetBool(item, "CompressionEnabled"),
+
+                AutoResynchronizeEnabled =
+                    GetBool(item, "AutoResynchronizeEnabled"),
+
+                AutoResynchronizeIntervalStart =
+                    GetTimeSpan(item, "AutoResynchronizeIntervalStart"),
+
+                AutoResynchronizeIntervalEnd =
+                    GetTimeSpan(item, "AutoResynchronizeIntervalEnd"),
+
+                ReplicationIntervalSec =
+                    GetInt(item, "ReplicationIntervalSec"),
+
+                FrequencySec =
+                    GetInt(item, "FrequencySec"),
+
+                LastReplicationTime =
+                    GetDateTime(item, "LastReplicationTime"),
+
+                CurrentReplicaTime =
+                    GetDateTime(item, "CurrentReplicaTime"),
+
+                LastSuccessfulReplicationTime =
+                    GetDateTime(item, "LastSuccessfulReplicationTime"),
+
+                FailedOver =
+                    GetBool(item, "FailedOver"),
+
+                TestFailoverInProcess =
+                    GetBool(item, "TestFailoverInProcess"),
+
+                TestFailoverTime =
+                    GetDateTime(item, "TestFailoverTime"),
+
+                TestFailoverVMName =
+                    GetString(item, "TestFailoverVMName"),
+
+                ReplicationHealthDetails =
+                    GetStringList(item, "ReplicationHealthDetails"),
+
+                IncludedDisks =
+                    GetStringList(item, "IncludedDisks"),
+
+                ExcludedDisks =
+                    GetStringList(item, "ExcludedDisks"),
+
+                RecoveryHistory =
+                    GetInt(item, "RecoveryHistory"),
+
+                ApplicationConsistentSnapshotFrequencyInHours =
+                    GetInt(
+                        item,
+                        "ApplicationConsistentSnapshotFrequencyInHours"),
+
+                ExtendedReplicationState =
+                    GetString(item, "ExtendedReplicationState"),
+
+                ExtendedReplicaServer =
+                    GetString(item, "ExtendedReplicaServer"),
+
+                ExtendedReplicaServerPort =
+                    GetNullableInt(
+                        item,
+                        "ExtendedReplicaServerPort"),
+
+                ExtendedAuthenticationType =
+                    GetString(
+                        item,
+                        "ExtendedAuthenticationType"),
+
+                ExtendedCertificateThumbprint =
+                    GetString(
+                        item,
+                        "ExtendedCertificateThumbprint")
+            });
+        }
+
+        return replications;
+    }
+    public async Task<IReadOnlyList<VmDvdInfo>> GetVmDvdsAsync(string computerName,CancellationToken cancellationToken = default)
+    {
+        var result = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-VM",
+                new Dictionary<string, object?>
+                {
+                    ["ComputerName"] = computerName
+                }
+            ),
+            (
+                "Get-VMDvdDrive",
+                null
+            ));
+
+        var dvds = new List<VmDvdInfo>();
+
+        foreach (var item in result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            dvds.Add(new VmDvdInfo
+            {
+                VmName = GetString(item, "VMName"),
+                HostName = GetString(item, "ComputerName", computerName),
+                VMId = GetString(item, "VMId"),
+                Id = GetString(item, "Id"),
+                Path = GetString(item, "Path"),
+                DvdMediaType = GetString(item, "DvdMediaType"),
+                ControllerLocation = GetInt(item, "ControllerLocation"),
+                ControllerNumber = GetInt(item, "ControllerNumber"),
+                ControllerType = GetString(item, "ControllerType"),
+                Name = GetString(item, "Name"),
+                PoolName = GetString(item, "PoolName"),
+                VMCheckpointId = GetString(item, "VMCheckpointId"),
+                VMCheckpointName = GetString(item, "VMCheckpointName"),
+                VMSnapshotId = GetString(item, "VMSnapshotId"),
+                VMSnapshotName = GetString(item, "VMSnapshotName"),
+                IsDeleted = GetBool(item, "IsDeleted")
+            });
+        }
+
+        return dvds;
+    }
+
+    // Cluster Information
+    public async Task<IReadOnlyList<ClusterInfo>> GetClustersAsync(string computerName,CancellationToken cancellationToken = default)
+    {
+        var result = await _powerShell.ExecutePipelineAsync(
+            cancellationToken,
+            (
+                "Get-Cluster",
+                new Dictionary<string, object?>
+                {
+                    ["Name"] = computerName
+                }
+            ));
+
+        var clusters = new List<ClusterInfo>();
+
+        foreach (var item in result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            clusters.Add(new ClusterInfo
+            {
+                Name = GetString(item, "Name"),
+                Domain = GetString(item, "Domain"),
+                Id = GetString(item, "Id"),
+                SharedVolumesRoot = GetString(item, "SharedVolumesRoot"),
+                AddEvictDelay = GetInt(item, "AddEvictDelay"),
+                BackupInProgress = GetInt(item, "BackupInProgress"),
+                BlockCacheSize = GetInt(item, "BlockCacheSize"),
+                ClusSvcDataPartitionMounted = GetInt(item, "ClusSvcDataPartitionMounted"),
+                ClusterEnforcedAntiAffinity = GetInt(item, "ClusterEnforcedAntiAffinity"),
+                ClusterFunctionalLevel = GetInt(item, "ClusterFunctionalLevel"),
+                ClusterGroupWaitDelay = GetInt(item, "ClusterGroupWaitDelay"),
+                ClusterLogLevel = GetInt(item, "ClusterLogLevel"),
+                ClusterLogSize = GetInt(item, "ClusterLogSize"),
+                CsvBalancedValidationThresholdInHours = GetInt(item, "CsvBalancedValidationThresholdInHours"),
+                CsvDirectIoOpt = GetInt(item, "CsvDirectIoOpt"),
+                CsvFltValidationThresholdInHours = GetInt(item, "CsvFltValidationThresholdInHours"),
+                CustomDeadlockDetectionTimeout = GetInt(item, "CustomDeadlockDetectionTimeout"),
+                DatabaseReadWriteMode = GetInt(item, "DatabaseReadWriteMode"),
+                DefaultNetworkRole = GetInt(item, "DefaultNetworkRole"),
+                Description = GetString(item, "Description"),
+                DrainOnShutdown = GetInt(item, "DrainOnShutdown"),
+                DumpPolicy = GetLong(item, "DumpPolicy"),
+                DynamicQuorum = GetInt(item, "DynamicQuorum"),
+                EnableAutomaticMetric = GetInt(item, "EnableAutomaticMetric"),
+                AutoAssignNodeSite = GetInt(item, "AutoAssignNodeSite"),
+                AutoBalancerMode = GetInt(item, "AutoBalancerMode"),
+                AutoBalancerLevel = GetInt(item, "AutoBalancerLevel"),
+                FixQuorum = GetInt(item, "FixQuorum"),
+                GracePeriodOnUnbalanced = GetInt(item, "GracePeriodOnUnbalanced"),
+                GroupAdministrativeDelay = GetInt(item, "GroupAdministrativeDelay"),
+                HangRecoveryAction = GetInt(item, "HangRecoveryAction"),
+                IgnorePersistentStateOnStartup = GetInt(item, "IgnorePersistentStateOnStartup"),
+                LogResourceControls = GetInt(item, "LogResourceControls"),
+                LowerQuorumPriorityNodeId = GetInt(item, "LowerQuorumPriorityNodeId"),
+                MaxNumberOfNodes = GetInt(item, "MaxNumberOfNodes"),
+                MessageBufferLength = GetInt(item, "MessageBufferLength"),
+                MinimumNeverPreemptPriority = GetInt(item, "MinimumNeverPreemptPriority"),
+                MinimumPreemptorPriority = GetInt(item, "MinimumPreemptorPriority"),
+                NetftIPSecEnabled = GetInt(item, "NetftIPSecEnabled"),
+                PlacementOptions = GetInt(item, "PlacementOptions"),
+                PreventQuorum = GetInt(item, "PreventQuorum"),
+                QuorumArbitrationTimeMax = GetInt(item, "QuorumArbitrationTimeMax"),
+                QuorumLogFileSize = GetInt(item, "QuorumLogFileSize"),
+                RequestReplyTimeout = GetInt(item, "RequestReplyTimeout"),
+                ResiliencyDefaultPeriod = GetInt(item, "ResiliencyDefaultPeriod"),
+                ResiliencyPeriodFilter = GetInt(item, "ResiliencyPeriodFilter"),
+                ResourceDllDeadlockTimeout = GetInt(item, "ResourceDllDeadlockTimeout"),
+                RootMemoryReserved = GetLong(item, "RootMemoryReserved"),
+                RouteHistoryLength = GetInt(item, "RouteHistoryLength"),
+                S2DCacheBehavior = GetString(item, "S2DCacheBehavior"),
+                S2DCacheFlashReservePercent = GetInt(item, "S2DCacheFlashReservePercent"),
+                S2DCachePageSizeKBytes = GetInt(item, "S2DCachePageSizeKBytes"),
+                S2DEnabled = GetInt(item, "S2DEnabled"),
+                S2DIOLatencyThreshold = GetInt(item, "S2DIOLatencyThreshold"),
+                S2DOptimizeFlashPoolThresholdPct = GetInt(item, "S2DOptimizeFlashPoolThresholdPct"),
+                SameSubnetDelay = GetInt(item, "SameSubnetDelay"),
+                SameSubnetThreshold = GetInt(item, "SameSubnetThreshold"),
+                SharedVolumeBlockCacheSizeInMB = GetInt(item, "SharedVolumeBlockCacheSizeInMB"),
+                SharedVolumeCompatibleFilters = GetStringList(item, "SharedVolumeCompatibleFilters"),
+                SharedVolumeSecurityDescriptor = GetString(item, "SharedVolumeSecurityDescriptor"),
+                ShutdownTimeoutInMinutes = GetInt(item, "ShutdownTimeoutInMinutes"),
+                UseClientAccessNetworksForSharedVolumes = GetInt(item, "UseClientAccessNetworksForSharedVolumes"),
+                WitnessDatabaseWriteTimeout = GetInt(item, "WitnessDatabaseWriteTimeout"),
+                WitnessDynamicWeight = GetInt(item, "WitnessDynamicWeight"),
+                WitnessRestartInterval = GetInt(item, "WitnessRestartInterval"),
+                CrossSiteDelay = GetInt(item, "CrossSiteDelay"),
+                CrossSiteThreshold = GetInt(item, "CrossSiteThreshold"),
+                CrossSubnetDelay = GetInt(item, "CrossSubnetDelay"),
+                CrossSubnetThreshold = GetInt(item, "CrossSubnetThreshold"),
+                PlumbAllCrossSubnetRoutes = GetInt(item, "PlumbAllCrossSubnetRoutes"),
+                PreferredSite = GetString(item, "PreferredSite"),
+                QuorumType = GetString(item, "QuorumType"),
+                Status = GetString(item, "Status")
+            });
+        }
+
+        return clusters;
+    }
+
+
+
+
 
     // Helper methods to extract properties from PSObject
 
@@ -655,6 +1197,52 @@ public class HyperVProvider : IHyperVProvider
             out var parsed)
             ? parsed
             : null;
+    }
+    private static TimeSpan? GetTimeSpan(PSObject item,string propertyName)
+    {
+        var value = item.Properties[propertyName]?.Value;
+
+        if (value == null)
+        {
+            return null;
+        }
+
+        if (value is TimeSpan timeSpan)
+        {
+            return timeSpan;
+        }
+
+        if (TimeSpan.TryParse(
+                value.ToString(),
+                out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+    private static int? GetNullableInt(PSObject item,string propertyName)
+    {
+        var value = item.Properties[propertyName]?.Value;
+
+        if (value == null)
+        {
+            return null;
+        }
+
+        if (value is int intValue)
+        {
+            return intValue;
+        }
+
+        if (int.TryParse(
+                value.ToString(),
+                out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
     }
 
 }

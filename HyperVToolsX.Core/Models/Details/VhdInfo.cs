@@ -26,8 +26,7 @@ public class VhdInfo
 
     public string DiskIdentifier { get; set; } = string.Empty;
 
-    public string FragmentationPercentage { get; set; } =
-        string.Empty;
+    public string FragmentationPercentage { get; set; } =string.Empty;
 
     public int Alignment { get; set; }
 

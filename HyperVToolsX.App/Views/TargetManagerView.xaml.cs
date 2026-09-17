@@ -1,18 +1,15 @@
-﻿using HyperVToolsX.Core.Enums;
+﻿using HyperVToolsX.Core.Collection;
+using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Models;
-using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Infrastructure.Collection;
 using HyperVToolsX.Infrastructure.HyperV;
 using HyperVToolsX.Infrastructure.PowerShellEngine;
 using HyperVToolsX.Infrastructure.Validation;
-
 using Microsoft.Win32;
-using System.Collections;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-
 
 namespace HyperVToolsX.App.Views;
 
@@ -22,38 +19,62 @@ public partial class TargetManagerView : UserControl
     private readonly TargetValidator _targetValidator;
     private readonly CollectionOrchestrator _collectionOrchestrator;
     private readonly InventoryCache _inventoryCache;
+
     public event EventHandler? CollectionCompleted;
 
-    private readonly ObservableCollection<TargetEntry>
-        _targets = [];
+    private readonly ObservableCollection<TargetEntry> _targets = [];
 
     public TargetManagerView(InventoryCache inventoryCache)
     {
         InitializeComponent();
 
-        
-        var powerShell =  new PowerShellExecutor();
-        var hyperVProvider =new HyperVProvider(powerShell);
-        var inventoryCollector = new BasicInventoryCollector(hyperVProvider);
-        _targetManager = new TargetManager();
-        _targetValidator = new TargetValidator(hyperVProvider);
-        _inventoryCache =inventoryCache;
-        _collectionOrchestrator = new CollectionOrchestrator( _targetValidator,inventoryCollector, _inventoryCache);
+        var powerShell = new PowerShellExecutor();
 
-        TargetDataGrid.ItemsSource =_targets;
+        var hyperVProvider =
+            new HyperVProvider(powerShell);
+
+        var inventoryCollector =
+            new BasicInventoryCollector(
+                hyperVProvider);
+
+        _targetManager =
+            new TargetManager();
+
+        _targetValidator =
+            new TargetValidator(
+                hyperVProvider);
+
+        _inventoryCache =
+            inventoryCache;
+
+        _collectionOrchestrator =
+            new CollectionOrchestrator(
+                _targetValidator,
+                inventoryCollector,
+                _inventoryCache);
+
+        TargetDataGrid.ItemsSource =
+            _targets;
 
         UpdateTargetStatistics();
     }
-    // Event handler for the "Collect" button click event.
-    private async void CollectButton_Click(object sender, RoutedEventArgs e)
+
+    // =========================================================
+    // COLLECTION
+    // =========================================================
+
+    private async void CollectButton_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         var readyEntries =
             _targets
-                .Where(target =>
-                    target.ValidationStatus ==
-                    TargetValidationStatus.Ready ||
-                    target.ValidationStatus ==
-                    TargetValidationStatus.ClusterReady)
+                .Where(
+                    target =>
+                        target.ValidationStatus ==
+                            TargetValidationStatus.Ready ||
+                        target.ValidationStatus ==
+                            TargetValidationStatus.ClusterReady)
                 .ToList();
 
         if (readyEntries.Count == 0)
@@ -77,28 +98,52 @@ public partial class TargetManagerView : UserControl
         {
             var targets =
                 readyEntries
-                    .Select(entry =>
-                        new HyperVTarget
-                        {
-                            Name = entry.Name,
-                            Address = entry.Name,
-                            Type = entry.Type,
-                            Validation =
-                                new TargetValidationResult
-                                {
-                                    TargetName = entry.Name,
-                                    Status =
-                                        entry.ValidationStatus,
-                                    NameResolved =
-                                        entry.NameResolved,
-                                    PingSucceeded =
-                                        entry.PingSucceeded,
-                                    HyperVConnectionSucceeded =
-                                        entry.HyperVConnectionSucceeded
-                                }
-                        })
-                    .ToList();
+                    .Select(
+                        entry =>
+                            new HyperVTarget
+                            {
+                                Name = entry.Name,
+                                Address = entry.Name,
+                                Type = entry.Type,
 
+                                Validation =
+                                    new TargetValidationResult
+                                    {
+                                        TargetName =
+                                            entry.Name,
+
+                                        Status =
+                                            entry.ValidationStatus,
+
+                                        NameResolved =
+                                            entry.NameResolved,
+
+                                        ResolvedAddress =
+                                            entry.ResolvedAddress,
+
+                                        PingSucceeded =
+                                            entry.PingSucceeded,
+
+                                        HyperVConnectionSucceeded =
+                                            entry.HyperVConnectionSucceeded,
+
+                                        IsCluster =
+                                            entry.IsCluster,
+
+                                        ClusterName =
+                                            string.IsNullOrWhiteSpace(
+                                                entry.ClusterName)
+                                                ? null
+                                                : entry.ClusterName,
+
+                                        ErrorMessage =
+                                            string.IsNullOrWhiteSpace(
+                                                entry.ErrorMessage)
+                                                ? null
+                                                : entry.ErrorMessage
+                                    }
+                            })
+                    .ToList();
 
             var request =
                 new CollectionRequest
@@ -115,7 +160,6 @@ public partial class TargetManagerView : UserControl
                     CollectIntegrationServices = true
                 };
 
-
             var progress =
                 new Progress<CollectionProgress>(
                     collectionProgress =>
@@ -123,15 +167,13 @@ public partial class TargetManagerView : UserControl
                         StatusText.Text =
                             $"Collecting " +
                             $"{collectionProgress.CompletedTargets}/" +
-                            $"{collectionProgress.TotalTargets} " +
-                            $"— {collectionProgress.CurrentTarget}";
+                            $"{collectionProgress.TotalTargets}" +
+                            $" — {collectionProgress.CurrentTarget}";
                     });
-
 
             StatusText.Text =
                 $"Starting collection for " +
                 $"{targets.Count} target(s)...";
-
 
             var result =
                 await _collectionOrchestrator.CollectAsync(
@@ -139,10 +181,9 @@ public partial class TargetManagerView : UserControl
                     request,
                     progress);
 
-
-            // ---------------------------------------------------------
+            // -----------------------------------------------------
             // UPDATE TARGET STATUS
-            // ---------------------------------------------------------
+            // -----------------------------------------------------
 
             foreach (var target in result.Targets)
             {
@@ -159,13 +200,16 @@ public partial class TargetManagerView : UserControl
                 }
 
                 if (target.Status ==
-                    Core.Enums.ConnectionStatus.Connected)
+                    ConnectionStatus.Connected)
                 {
                     entry.Result =
                         "Collection Completed";
 
                     entry.ValidationStatus =
                         TargetValidationStatus.Completed;
+
+                    entry.ErrorMessage =
+                        string.Empty;
                 }
                 else
                 {
@@ -181,13 +225,11 @@ public partial class TargetManagerView : UserControl
                 }
             }
 
-
             TargetDataGrid.Items.Refresh();
 
-
             CollectionCompleted?.Invoke(
-    this,
-    EventArgs.Empty);
+                this,
+                EventArgs.Empty);
 
             StatusText.Text =
                 $"Collection completed. " +
@@ -195,7 +237,6 @@ public partial class TargetManagerView : UserControl
                 $"{result.FailedTargets} failed. " +
                 $"Hosts: {result.TotalHosts}, " +
                 $"VMs: {result.TotalVirtualMachines}";
-
 
             MessageBox.Show(
                 $"Collection completed.\n\n" +
@@ -206,7 +247,6 @@ public partial class TargetManagerView : UserControl
                 "Collection Complete",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
-
         }
         catch (OperationCanceledException)
         {
@@ -235,13 +275,19 @@ public partial class TargetManagerView : UserControl
                 _targets.Any(
                     target =>
                         target.ValidationStatus ==
-                        TargetValidationStatus.Ready ||
+                            TargetValidationStatus.Ready ||
                         target.ValidationStatus ==
-                        TargetValidationStatus.ClusterReady);
+                            TargetValidationStatus.ClusterReady);
         }
     }
-    // Event handler for the "Validate" button click event.
-    private async void ValidateButton_Click(object sender, RoutedEventArgs e)
+
+    // =========================================================
+    // VALIDATION
+    // =========================================================
+
+    private async void ValidateButton_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         if (_targets.Count == 0)
         {
@@ -260,14 +306,14 @@ public partial class TargetManagerView : UserControl
         AddTargetsButton.IsEnabled = false;
         ClearButton.IsEnabled = false;
 
-        StatusText.Text = "Validation started...";
+        StatusText.Text =
+            "Validation started...";
 
         try
         {
-            // Create a snapshot of the targets currently in the UI.
-            var targetEntries = _targets.ToList();
+            var targetEntries =
+                _targets.ToList();
 
-            // Automatically determine worker count.
             var workerCount =
                 _targetManager.CalculateWorkerCount(
                     targetEntries.Count);
@@ -276,137 +322,68 @@ public partial class TargetManagerView : UserControl
                 $"Validating {targetEntries.Count} target(s) " +
                 $"using {workerCount} worker(s)...";
 
-            // Shared queue for the workers.
-            var queue = new Queue<TargetEntry>(
-                targetEntries);
+            var queue =
+                new Queue<TargetEntry>(
+                    targetEntries);
 
-            // Lock protecting the shared queue.
-            var syncLock = new object();
+            var syncLock =
+                new object();
 
-            // Create the required number of workers.
             var workers =
                 Enumerable
-                    .Range(0, workerCount)
-                    .Select(_ => ValidateWorkerAsync())
+                    .Range(
+                        0,
+                        workerCount)
+                    .Select(
+                        _ =>
+                            ValidateWorkerAsync(
+                                queue,
+                                syncLock))
                     .ToArray();
 
-            // Wait for every worker to finish.
             await Task.WhenAll(workers);
 
+            // -----------------------------------------------------
+            // VALIDATION SUMMARY
+            // -----------------------------------------------------
+
             var readyCount =
-                _targets.Count(target =>
-                    target.ValidationStatus ==
-                    TargetValidationStatus.Ready);
+                _targets.Count(
+                    target =>
+                        target.ValidationStatus ==
+                            TargetValidationStatus.Ready ||
+                        target.ValidationStatus ==
+                            TargetValidationStatus.ClusterReady);
+
+            var hostCount =
+                _targets.Count(
+                    target =>
+                        target.ValidationStatus ==
+                            TargetValidationStatus.Ready);
+
+            var clusterCount =
+                _targets.Count(
+                    target =>
+                        target.ValidationStatus ==
+                            TargetValidationStatus.ClusterReady);
 
             var failedCount =
-                _targets.Count(target =>
-                    target.ValidationStatus !=
-                    TargetValidationStatus.Ready);
+                _targets.Count(
+                    target =>
+                        target.ValidationStatus !=
+                            TargetValidationStatus.Ready &&
+                        target.ValidationStatus !=
+                            TargetValidationStatus.ClusterReady);
 
             StatusText.Text =
                 $"Validation completed. " +
-                $"{readyCount} ready, {failedCount} failed.";
+                $"{readyCount} ready, " +
+                $"{failedCount} failed. " +
+                $"{hostCount} host(s), " +
+                $"{clusterCount} cluster(s).";
 
             CollectButton.IsEnabled =
                 readyCount > 0;
-
-
-            // ---------------------------------------------------------
-            // WORKER
-            // ---------------------------------------------------------
-
-            async Task ValidateWorkerAsync()
-            {
-                while (true)
-                {
-                    TargetEntry? entry = null;
-
-                    lock (syncLock)
-                    {
-                        if (queue.Count > 0)
-                        {
-                            entry = queue.Dequeue();
-                        }
-                    }
-
-                    if (entry == null)
-                    {
-                        return;
-                    }
-
-                    await ValidateTargetAsync(entry);
-                }
-            }
-
-
-            // ---------------------------------------------------------
-            // TARGET VALIDATION
-            // ---------------------------------------------------------
-
-            async Task ValidateTargetAsync(
-                TargetEntry entry)
-            {
-                try
-                {
-                    entry.ValidationStatus =
-                        TargetValidationStatus.ResolvingName;
-
-                    entry.Result =
-                        "Resolving name...";
-
-                    await RefreshTargetGridAsync();
-
-
-                    var target =
-                        new HyperVToolsX.Core.Models.HyperVTarget
-                        {
-                            Name = entry.Name,
-                            Address = entry.Name,
-                            Type = entry.Type
-                        };
-
-
-                    var validation =
-                        await _targetValidator.ValidateAsync(
-                            target);
-
-
-                    entry.ValidationStatus =
-                        validation.Status;
-
-                    entry.NameResolved =
-                        validation.NameResolved;
-
-                    entry.PingSucceeded =
-                        validation.PingSucceeded;
-
-                    entry.HyperVConnectionSucceeded =
-                        validation.HyperVConnectionSucceeded;
-
-                    entry.ErrorMessage =
-                        validation.ErrorMessage
-                        ?? string.Empty;
-
-                    entry.Result =
-                        GetResultText(
-                            validation.Status);
-
-                    await RefreshTargetGridAsync();
-                }
-                catch (Exception ex)
-                {
-                    entry.ValidationStatus =
-                        TargetValidationStatus.Failed;
-
-                    entry.Result =
-                        "Failed";
-
-                    entry.ErrorMessage =
-                        ex.Message;
-
-                    await RefreshTargetGridAsync();
-                }
-            }
         }
         catch (OperationCanceledException)
         {
@@ -430,10 +407,141 @@ public partial class TargetManagerView : UserControl
             ImportButton.IsEnabled = true;
             AddTargetsButton.IsEnabled = true;
             ClearButton.IsEnabled = true;
+
+            CollectButton.IsEnabled =
+                _targets.Any(
+                    target =>
+                        target.ValidationStatus ==
+                            TargetValidationStatus.Ready ||
+                        target.ValidationStatus ==
+                            TargetValidationStatus.ClusterReady);
         }
     }
 
-    // Method to disconnect the selected target in the data grid.
+    // =========================================================
+    // VALIDATION WORKER
+    // =========================================================
+
+    private async Task ValidateWorkerAsync(
+        Queue<TargetEntry> queue,
+        object syncLock)
+    {
+        while (true)
+        {
+            TargetEntry? entry = null;
+
+            lock (syncLock)
+            {
+                if (queue.Count > 0)
+                {
+                    entry =
+                        queue.Dequeue();
+                }
+            }
+
+            if (entry == null)
+            {
+                return;
+            }
+
+            await ValidateTargetAsync(
+                entry);
+        }
+    }
+
+    // =========================================================
+    // TARGET VALIDATION
+    // =========================================================
+
+    private async Task ValidateTargetAsync(
+        TargetEntry entry)
+    {
+        try
+        {
+            entry.ValidationStatus =
+                TargetValidationStatus.ResolvingName;
+
+            entry.Result =
+                "Resolving name...";
+
+            entry.ErrorMessage =
+                string.Empty;
+
+            await RefreshTargetGridAsync();
+
+            var target =
+                new HyperVTarget
+                {
+                    Name =
+                        entry.Name,
+
+                    Address =
+                        entry.Name,
+
+                    Type =
+                        entry.Type
+                };
+
+            var validation =
+                await _targetValidator.ValidateAsync(
+                    target);
+
+            // -----------------------------------------------------
+            // COPY VALIDATION RESULT
+            // -----------------------------------------------------
+
+            entry.ValidationStatus =
+                validation.Status;
+
+            entry.NameResolved =
+                validation.NameResolved;
+
+            entry.ResolvedAddress =
+                validation.ResolvedAddress
+                ?? string.Empty;
+
+            entry.PingSucceeded =
+                validation.PingSucceeded;
+
+            entry.HyperVConnectionSucceeded =
+                validation.HyperVConnectionSucceeded;
+
+            entry.IsCluster =
+                validation.IsCluster;
+
+            entry.ClusterName =
+                validation.ClusterName
+                ?? string.Empty;
+
+            entry.ErrorMessage =
+                validation.ErrorMessage
+                ?? string.Empty;
+
+            entry.Result =
+                GetResultText(
+                    validation.Status);
+
+            await RefreshTargetGridAsync();
+        }
+        catch (Exception ex)
+        {
+            entry.ValidationStatus =
+                TargetValidationStatus.Failed;
+
+            entry.Result =
+                "Failed";
+
+            entry.ErrorMessage =
+                ex.Message;
+
+            await RefreshTargetGridAsync();
+        }
+    }
+
+    // =========================================================
+    // DISCONNECT SELECTED
+    // =========================================================
+
     public void DisconnectSelected()
     {
         var selected =
@@ -450,12 +558,23 @@ public partial class TargetManagerView : UserControl
             return;
         }
 
-selected.ValidationStatus =
+        selected.ValidationStatus =
             TargetValidationStatus.Pending;
 
         selected.NameResolved = false;
+
+        selected.ResolvedAddress =
+            string.Empty;
+
         selected.PingSucceeded = false;
-        selected.HyperVConnectionSucceeded = false;
+
+        selected.HyperVConnectionSucceeded =
+            false;
+
+        selected.IsCluster = false;
+
+        selected.ClusterName =
+            string.Empty;
 
         selected.Result =
             "Disconnected";
@@ -465,51 +584,82 @@ selected.ValidationStatus =
 
         TargetDataGrid.Items.Refresh();
 
+        UpdateTargetStatistics();
+
         StatusText.Text =
             $"Disconnected from {selected.Name}.";
     }
-    // Method to disconnect all targets in the data grid.
+
+    // =========================================================
+    // DISCONNECT ALL
+    // =========================================================
+
     public void DisconnectAll()
-{
-    if (_targets.Count == 0)
     {
-        return;
-    }
-
-    foreach (var target in _targets)
-    {
-        target.ValidationStatus =
-            TargetValidationStatus.Pending;
-
-        target.NameResolved = false;
-        target.PingSucceeded = false;
-        target.HyperVConnectionSucceeded = false;
-
-        target.Result =
-            "Disconnected";
-
-        target.ErrorMessage =
-            string.Empty;
-    }
-
-    TargetDataGrid.Items.Refresh();
-
-    CollectButton.IsEnabled = false;
-
-    StatusText.Text =
-        "All targets disconnected.";
-}
-
-
-    // Event handler for the "Import" button click event.
-    private void ImportButton_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog
+        if (_targets.Count == 0)
         {
-            Title = "Import Hyper-V Target List",
-            Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
-            Multiselect = false
-        };
+            return;
+        }
+
+        foreach (var target in _targets)
+        {
+            target.ValidationStatus =
+                TargetValidationStatus.Pending;
+
+            target.NameResolved = false;
+
+            target.ResolvedAddress =
+                string.Empty;
+
+            target.PingSucceeded =
+                false;
+
+            target.HyperVConnectionSucceeded =
+                false;
+
+            target.IsCluster =
+                false;
+
+            target.ClusterName =
+                string.Empty;
+
+            target.Result =
+                "Disconnected";
+
+            target.ErrorMessage =
+                string.Empty;
+        }
+
+        TargetDataGrid.Items.Refresh();
+
+        UpdateTargetStatistics();
+
+        CollectButton.IsEnabled =
+            false;
+
+        StatusText.Text =
+            "All targets disconnected.";
+    }
+
+    // =========================================================
+    // IMPORT
+    // =========================================================
+
+    private void ImportButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var dialog =
+            new OpenFileDialog
+            {
+                Title =
+                    "Import Hyper-V Target List",
+
+                Filter =
+                    "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+
+                Multiselect = false
+            };
 
         if (dialog.ShowDialog() != true)
         {
@@ -518,7 +668,9 @@ selected.ValidationStatus =
 
         try
         {
-            var lines = File.ReadAllLines(dialog.FileName);
+            var lines =
+                File.ReadAllLines(
+                    dialog.FileName);
 
             TargetInputTextBox.Text =
                 string.Join(
@@ -539,12 +691,18 @@ selected.ValidationStatus =
                 MessageBoxImage.Error);
         }
     }
-    // Event handler for the "Add Targets" button click event.
-    private void AddTargetsButton_Click(object sender,RoutedEventArgs e)
+
+    // =========================================================
+    // ADD TARGETS
+    // =========================================================
+
+    private void AddTargetsButton_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         AddTargetsFromInput();
     }
-    // Method to add targets from the input textbox.
+
     private void AddTargetsFromInput()
     {
         var lines =
@@ -558,7 +716,8 @@ selected.ValidationStatus =
                     StringSplitOptions.RemoveEmptyEntries);
 
         var normalized =
-            _targetManager.Normalize(lines);
+            _targetManager.Normalize(
+                lines);
 
         foreach (var target in normalized)
         {
@@ -574,8 +733,11 @@ selected.ValidationStatus =
             _targets.Add(
                 new TargetEntry
                 {
-                    Name = target.Name,
-                    Type = target.Type
+                    Name =
+                        target.Name,
+
+                    Type =
+                        target.Type
                 });
         }
 
@@ -586,26 +748,40 @@ selected.ValidationStatus =
         StatusText.Text =
             $"Added {_targets.Count} unique target(s).";
     }
-    // Event handler for the "Clear" button click event.
-    private void ClearButton_Click(object sender,RoutedEventArgs e)
+
+    // =========================================================
+    // CLEAR
+    // =========================================================
+
+    private void ClearButton_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         _targets.Clear();
 
         TargetInputTextBox.Clear();
 
-        CollectButton.IsEnabled = false;
+        CollectButton.IsEnabled =
+            false;
 
         UpdateTargetStatistics();
 
-        StatusText.Text = "Targets cleared.";
+        StatusText.Text =
+            "Targets cleared.";
     }
-    //  Method to update the target statistics displayed in the UI.
+
+    // =========================================================
+    // TARGET STATISTICS
+    // =========================================================
+
     private void UpdateTargetStatistics()
     {
-        var count = _targets.Count;
+        var count =
+            _targets.Count;
 
         var workers =
-            _targetManager.CalculateWorkerCount(count);
+            _targetManager.CalculateWorkerCount(
+                count);
 
         TargetCountText.Text =
             $"{count} target{(count == 1 ? "" : "s")}";
@@ -614,7 +790,10 @@ selected.ValidationStatus =
             workers.ToString();
     }
 
-    // Method to refresh the target data grid asynchronously.
+    // =========================================================
+    // GRID REFRESH
+    // =========================================================
+
     private async Task RefreshTargetGridAsync()
     {
         await Dispatcher.InvokeAsync(
@@ -624,8 +803,12 @@ selected.ValidationStatus =
             });
     }
 
-    // Method to get a user-friendly result text based on the target validation status.
-    private static string GetResultText(TargetValidationStatus status)
+    // =========================================================
+    // VALIDATION RESULT TEXT
+    // =========================================================
+
+    private static string GetResultText(
+        TargetValidationStatus status)
     {
         return status switch
         {
@@ -647,24 +830,39 @@ selected.ValidationStatus =
             TargetValidationStatus.ClusterReady =>
                 "Cluster Ready",
 
+            TargetValidationStatus.Completed =>
+                "Completed",
+
+            TargetValidationStatus.Failed =>
+                "Failed",
+
             _ =>
                 status.ToString()
         };
     }
-   
-    
-    // Event handler for the "Use Current Windows Credentials" checkbox change event.
-    private void UseCurrentWindowsCredentialsCheckBox_Changed(object sender,RoutedEventArgs e)
+
+    // =========================================================
+    // WINDOWS CREDENTIALS
+    // =========================================================
+
+    private void UseCurrentWindowsCredentialsCheckBox_Changed(
+        object sender,
+        RoutedEventArgs e)
     {
         var useCurrentCredentials =
-            UseCurrentWindowsCredentialsCheckBox.IsChecked == true;
+            UseCurrentWindowsCredentialsCheckBox.IsChecked ==
+            true;
 
-        if (UsernameTextBox == null || PasswordBox == null)
+        if (UsernameTextBox == null ||
+            PasswordBox == null)
         {
             return;
         }
 
-        UsernameTextBox.IsEnabled = !useCurrentCredentials;
-        PasswordBox.IsEnabled = !useCurrentCredentials;
+        UsernameTextBox.IsEnabled =
+            !useCurrentCredentials;
+
+        PasswordBox.IsEnabled =
+            !useCurrentCredentials;
     }
 }

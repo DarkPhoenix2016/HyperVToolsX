@@ -7,6 +7,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Data;
+using HyperVToolsX.App.Converters;
+using HyperVToolsX.Core.Enums;
 
 namespace HyperVToolsX.App;
 
@@ -17,13 +19,21 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<HyperVVirtualMachine> _virtualMachines = [];
     private readonly ObservableCollection<VmProcessorInfo> _processors = [];
     private readonly ObservableCollection<VmMemoryInfo> _memories = [];
-    private readonly ObservableCollection<VmDiskInfo> _disks = [];
+
     private readonly ObservableCollection<VmNetworkAdapter> _networkAdapters = [];
     private readonly ObservableCollection<VmNetworkVlanInfo> _networkVlans = [];
     private readonly ObservableCollection<VmCheckpointInfo> _checkpoints = [];
     private readonly ObservableCollection<VmIntegrationServiceInfo> _integrationServices = [];
+    private readonly ObservableCollection<VmStorageInfo> _vmStorage = [];
+    private readonly ObservableCollection<VmDiskInfo> _disks = [];
+    private readonly ObservableCollection<VhdInfo> _vhds = [];
+    private readonly ObservableCollection<VmReplicationInfo> _replications = [];
+    private readonly ObservableCollection<VmDvdInfo> _dvds = [];
+    private readonly ObservableCollection<ClusterInfo> _clusters = [];
 
 
+
+    private readonly ObservableCollection<HostInventoryRow> _hostInventoryRows = [];
     private readonly ObservableCollection<HyperVHost> _hosts = [];
 
 
@@ -39,16 +49,15 @@ public partial class MainWindow : Window
 
         _inventoryCache = new InventoryCache();
 
+        ByteSizeConverter.CurrentUnit = SizeUnit.GB;
+        GbUnitMenuItem.IsChecked = true;
+
         Loaded += MainWindow_Loaded;
     }
-
-    private void MainWindow_Loaded(
-        object sender,
-        RoutedEventArgs e)
+    private void MainWindow_Loaded(object sender,RoutedEventArgs e)
     {
         OpenTargetManager();
     }
-
     private void OpenTargetManager()
     {
         var targetManagerView = new TargetManagerView(_inventoryCache);
@@ -72,10 +81,7 @@ public partial class MainWindow : Window
 
         targetManagerWindow.ShowDialog();
     }
-
-    private void TargetManagerView_CollectionCompleted(
-        object? sender,
-        EventArgs e)
+    private void TargetManagerView_CollectionCompleted( object? sender,EventArgs e)
     {
         LoadCachedInventory();
     }
@@ -92,15 +98,20 @@ public partial class MainWindow : Window
         LoadNetworkVlans(snapshot);
         LoadCheckpoints(snapshot);
         LoadIntegrationServiceInfo(snapshot);
-
-
-        LoadHosts(snapshot);
+        LoadStorageInfo(snapshot);
+        LoadVhds(snapshot);
+        LoadReplication(snapshot);
+        LoadDvds(snapshot);
+        LoadClusters(snapshot);
+        LoadHostInventory(snapshot);
+  
 
         PopulateFilters();
 
         UpdateSummary(snapshot);
     }
 
+    
     private void LoadVirtualMachines( InventorySnapshot snapshot)
     {
         _virtualMachines.Clear();
@@ -119,7 +130,6 @@ public partial class MainWindow : Window
 
         RefreshVmFilter();
     }
-
     private void LoadProcessors( InventorySnapshot snapshot)
     {
         _processors.Clear();
@@ -131,7 +141,6 @@ public partial class MainWindow : Window
 
         CpuDataGrid.ItemsSource = _processors;
     }
-
     private void LoadMemories( InventorySnapshot snapshot)
     {
         _memories.Clear();
@@ -143,19 +152,6 @@ public partial class MainWindow : Window
 
         MemoryDataGrid.ItemsSource = _memories;
     }
-
-    private void LoadDisks( InventorySnapshot snapshot)
-    {
-        _disks.Clear();
-
-        foreach (var disk in snapshot.Disks)
-        {
-            _disks.Add(disk);
-        }
-
-        DiskDataGrid.ItemsSource = _disks;
-    }
-
     private void LoadNetworkAdapters(InventorySnapshot snapshot)
     {
         _networkAdapters.Clear();
@@ -175,7 +171,6 @@ public partial class MainWindow : Window
 
         RefreshNetworkFilter();
     }
-
     private void LoadNetworkVlans(InventorySnapshot snapshot)
     {
         _networkVlans.Clear();
@@ -186,18 +181,6 @@ public partial class MainWindow : Window
         }
 
         VlanDataGrid.ItemsSource = _networkVlans;
-    }
-
-    private void LoadHosts(  InventorySnapshot snapshot)
-    {
-        _hosts.Clear();
-
-        foreach (var host in snapshot.Hosts)
-        {
-            _hosts.Add(host);
-        }
-
-        HostDataGrid.ItemsSource = _hosts;
     }
     private void LoadCheckpoints(InventorySnapshot snapshot)
     {
@@ -220,6 +203,191 @@ public partial class MainWindow : Window
         }
 
         IntegrationDataGrid.ItemsSource = _integrationServices;
+    }
+    private void LoadStorageInfo(InventorySnapshot snapshot)
+    {
+        _vmStorage.Clear();
+        foreach (var storage in snapshot.VmStorage)
+        {
+            _vmStorage.Add(storage);
+        }
+        StorageDataGrid.ItemsSource = _vmStorage;
+    }
+    private void LoadDisks(InventorySnapshot snapshot)
+    {
+        _disks.Clear();
+
+        foreach (var disk in snapshot.Disks)
+        {
+            _disks.Add(disk);
+        }
+
+        DiskDataGrid.ItemsSource = _disks;
+    }
+    private void LoadVhds(InventorySnapshot snapshot)
+    {
+        _vhds.Clear();
+        foreach (var vhd in snapshot.Vhds)
+        {
+            _vhds.Add(vhd);
+        }
+        VhdDataGrid.ItemsSource = _vhds;
+    }
+    private void LoadReplication(InventorySnapshot snapshot)
+    {
+        _replications.Clear();
+
+        foreach (var replication in snapshot.Replication)
+        {
+            _replications.Add(replication);
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"REPLICATION UI LOAD: snapshot={snapshot.Replication.Count}, collection={_replications.Count}");
+
+        ReplicationDataGrid.ItemsSource = _replications;
+    }
+    private void LoadDvds(InventorySnapshot snapshot)
+    {
+        _dvds.Clear();
+
+        foreach (var dvd in snapshot.Dvds)
+        {
+            _dvds.Add(dvd);
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"DVD UI LOAD: snapshot={snapshot.Dvds.Count}, collection={_dvds.Count}");
+
+        DvdDataGrid.ItemsSource = _dvds;
+    }
+    private void LoadClusters(InventorySnapshot snapshot)
+    {
+        _clusters.Clear();
+
+        foreach (var cluster in snapshot.Clusters)
+        {
+            _clusters.Add(cluster);
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"CLUSTER UI LOAD: snapshot={snapshot.Clusters.Count}, collection={_clusters.Count}");
+
+        ClusterDataGrid.ItemsSource = _clusters;
+    }
+
+    private void LoadHostInventory(InventorySnapshot snapshot)
+    {
+        _hostInventoryRows.Clear();
+
+        foreach (var host in snapshot.Hosts)
+        {
+            var storage = snapshot.HostStorage
+                .FirstOrDefault(x =>
+                    string.Equals(
+                        x.HostName,
+                        host.Name,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        x.ComputerName,
+                        host.Name,
+                        StringComparison.OrdinalIgnoreCase));
+
+            var operatingSystem = snapshot.OperatingSystems
+                .FirstOrDefault(x =>
+                    string.Equals(
+                        x.ComputerName,
+                        host.Name,
+                        StringComparison.OrdinalIgnoreCase));
+
+            var row = new HostInventoryRow
+            {
+                // Host
+                HostName = host.Name,
+                Fqdn = host.Fqdn,
+                ClusterName = host.ClusterName,
+                IsClusterNode = host.IsClusterNode,
+                IsConnected = host.IsConnected,
+
+                // Hyper-V
+                HyperVVersion = host.HyperVVersion,
+                LogicalProcessorCount = host.LogicalProcessorCount,
+                VirtualMachineCount = host.VirtualMachineCount,
+
+                // Memory
+                TotalMemoryBytes = host.TotalMemoryBytes,
+                UsedMemoryBytes = host.UsedMemoryBytes,
+
+                // Operating System
+                OperatingSystem = operatingSystem?.Caption
+                    ?? host.OperatingSystem,
+
+                OSVersion = operatingSystem?.Version
+                    ?? string.Empty,
+
+                OSBuildNumber = operatingSystem?.BuildNumber
+                    ?? string.Empty,
+
+                OSArchitecture = operatingSystem?.OSArchitecture
+                    ?? string.Empty,
+
+                LastBootUpTime = operatingSystem?.LastBootUpTime,
+
+                // OS Memory
+                TotalVisibleMemorySizeKb =
+                    operatingSystem?.TotalVisibleMemorySizeKb ?? 0,
+
+                FreePhysicalMemoryKb =
+                    operatingSystem?.FreePhysicalMemoryKb ?? 0,
+
+                // Hyper-V Storage
+                VirtualHardDiskPath =
+                    storage?.VirtualHardDiskPath ?? string.Empty,
+
+                VirtualMachinePath =
+                    storage?.VirtualMachinePath ?? string.Empty,
+
+                ParentSnapshotPath =
+                    storage?.ParentSnapshotPath ?? string.Empty,
+
+                // VM Migration
+                MaximumStorageMigrations =
+                    storage?.MaximumStorageMigrations ?? 0,
+
+                MaximumVirtualMachineMigrations =
+                    storage?.MaximumVirtualMachineMigrations ?? 0,
+
+                VirtualMachineMigrationEnabled =
+                    storage?.VirtualMachineMigrationEnabled ?? false,
+
+                VirtualMachineMigrationAuthenticationType =
+                    storage?.VirtualMachineMigrationAuthenticationType
+                    ?? string.Empty,
+
+                VirtualMachineMigrationPerformanceOption =
+                    storage?.VirtualMachineMigrationPerformanceOption
+                    ?? string.Empty,
+
+                UseAnyNetworkForMigration =
+                    storage?.UseAnyNetworkForMigration ?? false,
+
+                // Hyper-V Settings
+                EnableEnhancedSessionMode =
+                    storage?.EnableEnhancedSessionMode ?? false,
+
+                // Status
+                IsDeleted =
+                    storage?.IsDeleted ?? false
+            };
+
+            _hostInventoryRows.Add(row);
+        }
+
+        HostDataGrid.ItemsSource = _hostInventoryRows;
+
+        System.Diagnostics.Debug.WriteLine(
+            $"HOST UI LOAD: snapshot={snapshot.Hosts.Count}, rows={_hostInventoryRows.Count}");
     }
 
 
@@ -462,33 +630,25 @@ public partial class MainWindow : Window
         var totalCpus =
             virtualMachines.Sum(vm => vm.ProcessorCount);
 
-        var assignedMemoryGb =
-            virtualMachines.Sum(vm => vm.MemoryAssigned)
-            / 1024.0
-            / 1024.0
-            / 1024.0;
+        var assignedMemoryBytes = virtualMachines.Sum( vm => vm.MemoryAssigned);
+
+        AssignedMemoryText.Text =ByteSizeConverter.FormatBytes(assignedMemoryBytes);
 
         TotalVmText.Text = totalVms.ToString();
         RunningVmText.Text = runningVms.ToString();
         PoweredOffVmText.Text = poweredOffVms.ToString();
         TotalCpuText.Text = totalCpus.ToString();
-        AssignedMemoryText.Text =
-            $"{assignedMemoryGb:0.##} GB";
+     
 
-        NodesQueriedText.Text =
-            $"{snapshot.HostCount}/{snapshot.HostCount}";
+        NodesQueriedText.Text = $"{snapshot.HostCount}/{snapshot.HostCount}";
 
-        CheckpointText.Text =
-            snapshot.CheckpointCount.ToString();
+        CheckpointText.Text =snapshot.CheckpointCount.ToString();
 
-        LastUpdatedText.Text =
-            $"Last updated: {snapshot.CreatedAt:MM/dd/yyyy HH:mm:ss}";
+        LastUpdatedText.Text = $"Last updated: {snapshot.CreatedAt:MM/dd/yyyy HH:mm:ss}";
 
-        StatusText.Text =
-            $"Inventory loaded — {snapshot.VirtualMachineCount} VM(s)";
+        StatusText.Text =$"Inventory loaded — {snapshot.VirtualMachineCount} VM(s)";
 
-        RowCountText.Text =
-            $"{totalVms} rows";
+        RowCountText.Text =$"{totalVms} rows";
     }
 
     private void DisconnectSelectedMenuItem_Click(object sender, RoutedEventArgs e)
@@ -505,4 +665,61 @@ public partial class MainWindow : Window
     {
         OpenTargetManager();
     }
+
+    private void SizeUnitMenuItem_Click(object sender,RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem menuItem)
+        {
+            return;
+        }
+
+        var selectedUnit = menuItem.Name switch
+        {
+            "BytesUnitMenuItem" => SizeUnit.Bytes,
+            "KbUnitMenuItem" => SizeUnit.KB,
+            "MbUnitMenuItem" => SizeUnit.MB,
+            "GbUnitMenuItem" => SizeUnit.GB,
+            "TbUnitMenuItem" => SizeUnit.TB,
+            "PbUnitMenuItem" => SizeUnit.PB,
+            _ => SizeUnit.GB
+        };
+
+        ByteSizeConverter.CurrentUnit = selectedUnit;
+
+        BytesUnitMenuItem.IsChecked =
+            selectedUnit == SizeUnit.Bytes;
+
+        KbUnitMenuItem.IsChecked =
+            selectedUnit == SizeUnit.KB;
+
+        MbUnitMenuItem.IsChecked =
+            selectedUnit == SizeUnit.MB;
+
+        GbUnitMenuItem.IsChecked =
+            selectedUnit == SizeUnit.GB;
+
+        TbUnitMenuItem.IsChecked =
+            selectedUnit == SizeUnit.TB;
+
+        PbUnitMenuItem.IsChecked =
+            selectedUnit == SizeUnit.PB;
+
+        RefreshSizeDisplays();
+    }
+    private void RefreshSizeDisplays()
+    {
+        VmDataGrid.Items.Refresh();
+        MemoryDataGrid.Items.Refresh();
+        StorageDataGrid.Items.Refresh();
+        DiskDataGrid.Items.Refresh();
+        VhdDataGrid.Items.Refresh();
+        CheckpointDataGrid.Items.Refresh();
+        HostDataGrid.Items.Refresh();
+        ClusterDataGrid.Items.Refresh();
+
+        UpdateSummary(_inventoryCache.GetSnapshot());
+    }
+
+
+
 }
