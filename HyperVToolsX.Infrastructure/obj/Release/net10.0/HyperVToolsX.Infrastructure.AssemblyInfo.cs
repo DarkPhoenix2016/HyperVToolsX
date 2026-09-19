@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("HyperVToolsX.Infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+aab6e44d9a214a1b0b89efc8242f93fd1769f5f1")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4108cfe3edcfd1de19ed2ee6a6d10845d8eb9714")]
 [assembly: System.Reflection.AssemblyProductAttribute("HyperVToolsX.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("HyperVToolsX.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

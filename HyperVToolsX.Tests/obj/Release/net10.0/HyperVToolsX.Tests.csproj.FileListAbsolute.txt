@@ -1,10 +1,4 @@
 Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\.msCoverageSourceRootsMapping_HyperVToolsX.Tests
-Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.csproj.AssemblyReference.cache
-Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.GeneratedMSBuildEditorConfig.editorconfig
-Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.AssemblyInfoInputs.cache
-Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.AssemblyInfo.cs
-Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.csproj.CoreCompileInputs.cache
-Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.sourcelink.json
 Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\testhost.dll
 Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\xunit.abstractions.dll
 Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\ref\Microsoft.CSharp.dll
@@ -521,6 +515,12 @@ Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\HyperVToolsX.Core.dll
 Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\HyperVToolsX.Infrastructure.dll
 Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\HyperVToolsX.Core.pdb
 Y:\HyperVToolsX\HyperVToolsX.Tests\bin\Release\net10.0\HyperVToolsX.Infrastructure.pdb
+Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.csproj.AssemblyReference.cache
+Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.GeneratedMSBuildEditorConfig.editorconfig
+Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.AssemblyInfoInputs.cache
+Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.AssemblyInfo.cs
+Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.csproj.CoreCompileInputs.cache
+Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.sourcelink.json
 Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVTo.14996C5A.Up2Date
 Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\HyperVToolsX.Tests.dll
 Y:\HyperVToolsX\HyperVToolsX.Tests\obj\Release\net10.0\refint\HyperVToolsX.Tests.dll

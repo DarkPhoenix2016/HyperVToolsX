@@ -551,14 +551,16 @@ public partial class MainWindow : Window
         Close();
     }
 
-    private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
+    private void AboutMenuItem_Click(
+        object sender,
+        RoutedEventArgs e)
     {
-        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        var aboutWindow = new AboutWindow
+        {
+            Owner = this
+        };
 
-        ShowInfo(
-            $"HyperVToolsX\nVersion {version}\n\n" +
-            "A Hyper-V inventory and documentation tool.",
-            "About HyperVToolsX");
+        aboutWindow.ShowDialog();
     }
 
     private void SizeUnitMenuItem_Click(object sender, RoutedEventArgs e)
