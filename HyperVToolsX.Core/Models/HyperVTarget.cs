@@ -13,6 +13,12 @@ public class HyperVTarget
     public TargetValidationResult Validation { get; set; } = new();
     public DateTime? LastSuccessfulScan { get; set; }
 
+    /// <summary>
+    /// For a cluster target: the data of each node on its own (the lists below hold all nodes combined).
+    /// Empty for anything else.
+    /// </summary>
+    public List<HyperVTarget> NodeTargets { get; set; } = [];
+
     public List<HyperVHost> Hosts { get; set; } = [];
     public List<HyperVVirtualMachine> VirtualMachines { get; set; } = [];
     public List<VmProcessorInfo> Processors { get; set; } = [];

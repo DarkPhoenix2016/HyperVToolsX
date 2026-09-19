@@ -2206,6 +2206,11 @@
 
                             <DataGridTextColumn
                     Width="120"
+                    Header="Cluster Owner"
+                    Binding="{Binding IsClusterOwner}" />
+
+                            <DataGridTextColumn
+                    Width="120"
                     Header="Connected"
                     Binding="{Binding IsConnected}" />
 

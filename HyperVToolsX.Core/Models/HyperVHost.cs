@@ -22,5 +22,8 @@ public class HyperVHost
 
     public bool IsClusterNode { get; set; }
 
+    /// <summary>True for the cluster node that currently owns the cluster core group (the cluster name).</summary>
+    public bool IsClusterOwner { get; set; }
+
     public bool IsConnected { get; set; }
 }

@@ -167,6 +167,23 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void ClusterNodeFiles_GoInAFolderNamedAfterTheCluster()
+    {
+        var o = CommandLineParser.Parse(["/host:CL1", @"/export:C:\Reports", "/type:xlsx"]).Options!;
+        var when = new DateTime(2026, 9, 20, 3, 15, 0);
+
+        Assert.Equal(
+            Path.Combine(@"C:\Reports", "CL1", "NODE1_20260920-031500.xlsx"),
+            o.ResolveClusterNodeFile("CL1", "NODE1", when));
+
+        // Names that can't be file names are sanitized, and CSV keeps its extension.
+        var csv = CommandLineParser.Parse(["/host:CL1", @"/export:out", "/type:csv"]).Options!;
+        Assert.Equal(
+            Path.Combine("out", "cl_1", "n_1_20260920-031500.csv"),
+            csv.ResolveClusterNodeFile("cl/1", "n:1", when));
+    }
+
+    [Fact]
     public void Parse_HostFile_IsCombinedWithHostAndDeduplicated()
     {
         var file = Path.Combine(Path.GetTempPath(), $"hvtx-hosts-{Guid.NewGuid():N}.txt");

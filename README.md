@@ -49,7 +49,7 @@ for auditing, documentation and troubleshooting.
 
 - **Agentless** — nothing is installed on the targets; data is gathered with the Hyper-V PowerShell module,
   locally or over WinRM.
-- **Cluster-aware** — cluster membership is discovered so hosts and VMs roll up correctly.
+- **Cluster-aware** — give a cluster name and every node is found and collected; the node that owns the cluster is marked.
 - **Self-contained** — publishes as a single-file, self-contained `win-x64` executable that needs no .NET
   runtime on the machine.
 
@@ -260,7 +260,8 @@ HyperVToolsX.exe /hostfile:C:\hosts.txt /export:D:\Out /type:xlsx /ssl
 HyperVToolsX.exe /host:HV01.domain.com /export:D:\Out /type:csv /auth:Kerberos
 ```
 
-**One file per host.** Every host is collected on its own (up to 10 at a time) and written to its own file, named
+**One file per host.** Every host is collected on its own (up to 10 at a time) and written to its own file (a cluster
+name gets a folder with one file per node, see [Clusters](#clusters)), named
 `<hostname>_<yyyyMMdd-HHmmss>` in the export folder, for example `C:\Reports\HV01_20260920-031500.xlsx`. With
 `/hostfile` listing 50 hosts you get 50 files. A host that fails (unreachable, no Hyper-V, bad credentials) is reported
 and skipped without affecting the others. Characters that are not allowed in file names are replaced with `_`, and every run
@@ -336,6 +337,26 @@ or removes existing entries (including `*`).
 Collection scope is controlled by `CollectionRequest` (CPU, memory, storage, network, checkpoints, integration
 services, and `MaxConcurrentTargets`, default 10). The worker pool is clamped between 1 and 10 by
 `WorkerConfiguration`.
+
+### Clusters
+
+Enter a **cluster name** (the cluster's own name, not a node) as a target and HyperVToolsX collects the whole cluster:
+
+1. Validation detects that the name is a cluster (`Cluster` in the target list); a node entered by name is a
+   `Clustered Host` and only that node is collected.
+2. The nodes are listed with `Get-ClusterNode`. A cluster name only reaches whichever node currently owns it, and
+   `Get-VM` only lists the VMs running on the node it runs on, so **each node is then collected on its own** (up to 4 at
+   a time) and the results are combined under the cluster. Nodes that are `Down` are skipped with a warning; if a node
+   fails the others are still collected (see the Live Log); if none can be collected the target fails.
+3. **Each node appears once** on the vHost tab (and in exports), including the owner. If you also add a node separately,
+   or add the same host under two names, the duplicate is left out of the inventory.
+4. The vHost tab has a **Cluster Owner** column that is `True` for the node that currently owns the cluster core group
+   (the cluster name); it is included in the exports as well.
+
+In command-line mode a cluster name is written as **one file per node inside a folder named after the cluster**, e.g.
+`/host:CL1 /export:C:\Reports /type:xlsx` gives `C:\Reports\CL1\NODE1_20260920-031500.xlsx`,
+`C:\Reports\CL1\NODE2_20260920-031500.xlsx`, and so on. Each node's file holds only that node (its host row, VMs, disks,
+NICs, ...) plus your custom tabs, and the owner node has `Cluster Owner = True`.
 
 ## Architecture
 

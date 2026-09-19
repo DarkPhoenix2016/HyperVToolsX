@@ -14,11 +14,12 @@ public class InventoryCache : IInventoryCache
     {
         lock (_lock)
         {
-            var targets = _targets.Values.ToList();
+            var allTargets = _targets.Values.ToList();
+            var targets = WithoutDuplicateHosts(allTargets);
 
             return new InventorySnapshot
             {
-                Targets = targets,
+                Targets = allTargets,
                 Hosts = targets
                     .SelectMany(target => target.Hosts)
                     .ToList(),
@@ -117,5 +118,39 @@ public class InventoryCache : IInventoryCache
         {
             return _targets.ContainsKey(targetName);
         }
+    }
+
+    /// <summary>
+    /// A cluster target contains all of its nodes, so a node that was also added on its own (or a host added
+    /// under two names) would appear twice. Targets are visited largest first, and one whose hosts are all
+    /// covered already is left out of the aggregate. Original order is kept.
+    /// </summary>
+    internal static List<HyperVTarget> WithoutDuplicateHosts(IReadOnlyList<HyperVTarget> targets)
+    {
+        var covered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var kept = new HashSet<HyperVTarget>();
+
+        foreach (var target in targets.OrderByDescending(t => t.Hosts.Count))
+        {
+            var keys = target.Hosts.Select(h => ShortName(h.Name)).ToList();
+
+            if (keys.Count > 0 && keys.All(covered.Contains))
+            {
+                continue;
+            }
+
+            kept.Add(target);
+            covered.UnionWith(keys);
+        }
+
+        return targets.Where(kept.Contains).ToList();
+    }
+
+    private static string ShortName(string name)
+    {
+        var trimmed = (name ?? string.Empty).Trim();
+        var dot = trimmed.IndexOf('.');
+
+        return dot > 0 && !System.Net.IPAddress.TryParse(trimmed, out _) ? trimmed[..dot] : trimmed;
     }
 }

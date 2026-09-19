@@ -3,6 +3,8 @@ using System.Reflection;
 using HyperVToolsX.Core.Cli;
 using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Core.Interfaces;
+using HyperVToolsX.Core.Models;
+using HyperVToolsX.Core.Templates;
 using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Export;
 using HyperVToolsX.Infrastructure.Collection;
@@ -127,6 +129,14 @@ internal static class CommandLineRunner
                         return false;
                     }
 
+                    var collected = result.Targets[0];
+
+                    // A cluster name is written as one file per node, in a folder named after the cluster.
+                    if (collected.Type == Core.Enums.TargetType.Cluster && collected.NodeTargets.Count > 0)
+                    {
+                        return await ExportClusterAsync(collected, exporter, templates, options, cts.Token);
+                    }
+
                     var file = Path.GetFullPath(options.ResolveExportFile(host, DateTime.Now));
                     var count = await exporter.ExportAsync(cache.GetSnapshot(), file, options.SizeUnit, templates, cts.Token);
 
@@ -174,6 +184,53 @@ internal static class CommandLineRunner
         {
             Console.CancelKeyPress -= onCancel;
         }
+    }
+
+    /// <summary>Writes each node of a collected cluster to its own file inside "&lt;export&gt;\&lt;cluster&gt;".</summary>
+    private static async Task<bool> ExportClusterAsync(
+        HyperVTarget cluster,
+        IInventoryExporter exporter,
+        IReadOnlyList<CustomTabTemplate> templates,
+        CommandLineOptions options,
+        CancellationToken cancellationToken)
+    {
+        var allWritten = true;
+        var exported = 0;
+
+        foreach (var node in cluster.NodeTargets)
+        {
+            try
+            {
+                // Each node is exported from its own data, as a standalone host would be.
+                var nodeCache = new InventoryCache();
+                nodeCache.UpdateTarget(node);
+
+                var file = Path.GetFullPath(options.ResolveClusterNodeFile(cluster.Name, node.Name, DateTime.Now));
+
+                var count = await exporter.ExportAsync(nodeCache.GetSnapshot(), file, options.SizeUnit, templates, cancellationToken);
+                exported++;
+
+                Write(
+                    options,
+                    options.ExportsCsv
+                        ? $"  OK      {cluster.Name} / {node.Name}: {count} file(s), {Path.Combine(Path.GetDirectoryName(file)!, Path.GetFileNameWithoutExtension(file))}-<tab>.csv " +
+                          $"({node.VirtualMachines.Count} VM(s))"
+                        : $"  OK      {cluster.Name} / {node.Name}: {file} ({count} sheet(s), {node.VirtualMachines.Count} VM(s))");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                allWritten = false;
+                Write(options, $"  FAILED  {cluster.Name} / {node.Name}: {ex.Message}", error: true);
+            }
+        }
+
+        Write(options, $"  Cluster {cluster.Name}: {exported} of {cluster.NodeTargets.Count} node file(s) written.");
+
+        return allWritten && exported > 0;
     }
 
     private static void Write(CommandLineOptions options, string message, bool error = false)

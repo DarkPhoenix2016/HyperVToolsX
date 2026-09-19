@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using HyperVToolsX.Core.Collection;
+using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Interfaces;
 using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Core.Models;
@@ -81,28 +82,34 @@ public class RemoteInventoryCollector : IInventoryCollector
                 nameof(target));
         }
 
-        _log.Step("Collection", $"Collecting inventory via {computerName}", target.Name);
-
-        var package = await CollectRemotePackageAsync(
-            computerName,
-            target.Name,
-            cancellationToken);
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (!package.Success)
+        if (target.Type == TargetType.Cluster && target.Validation.IsCluster)
         {
-            throw new InvalidOperationException(
-                string.IsNullOrWhiteSpace(package.ErrorMessage)
-                    ? $"Remote inventory collection failed for '{computerName}'."
-                    : package.ErrorMessage);
+            await CollectClusterAsync(target, computerName, cancellationToken);
         }
+        else
+        {
+            _log.Step("Collection", $"Collecting inventory via {computerName}", target.Name);
 
-        _log.Step("Collection", "Mapping remote package to inventory model", target.Name);
+            var package = await CollectRemotePackageAsync(
+                computerName,
+                target.Name,
+                cancellationToken);
 
-        RemoteInventoryMapper.MapToTarget(
-            target,
-            package);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!package.Success)
+            {
+                throw new InvalidOperationException(
+                    string.IsNullOrWhiteSpace(package.ErrorMessage)
+                        ? $"Remote inventory collection failed for '{computerName}'."
+                        : package.ErrorMessage);
+            }
+
+            _log.Step("Collection", "Mapping remote package to inventory model", target.Name);
+
+            RemoteInventoryMapper.MapToTarget(target, package);
+            ApplyHostDefaults(target);
+        }
 
         _log.Info(
             "Collection",
@@ -110,6 +117,140 @@ public class RemoteInventoryCollector : IInventoryCollector
             $"{target.NetworkAdapters.Count} NIC(s), {target.Processors.Count} CPU row(s)",
             target.Name);
 
+        progress?.Report(
+            new CollectionProgress
+            {
+                TotalTargets = 1,
+                CompletedTargets = 1,
+                TotalHosts = target.Hosts.Count,
+                TotalVirtualMachines =
+                    target.VirtualMachines.Count,
+                CurrentTarget = target.Name,
+                CurrentStage = "Remote data collection completed"
+            });
+
+        return target;
+    }
+
+    /// <summary>Most cluster nodes queried at once for one cluster (each is a separate PowerShell process).</summary>
+    private const int MaxParallelNodes = 4;
+
+    /// <summary>
+    /// A cluster name only reaches whichever node owns it, and Get-VM only lists the VMs running on the node it
+    /// runs on. So the nodes are listed first and each one is collected on its own; the results are combined into
+    /// the cluster target, with every node (the owner included) appearing once.
+    /// </summary>
+    private async Task CollectClusterAsync(
+        HyperVTarget target,
+        string computerName,
+        CancellationToken cancellationToken)
+    {
+        _log.Step("Collection", $"'{target.Name}' is a cluster: listing its nodes", target.Name);
+
+        var json = await _runner.RunAsync(computerName, ClusterNodes.DiscoveryScript, cancellationToken);
+        var nodes = ClusterNodes.ParseNodes(json);
+
+        if (nodes.Count == 0)
+        {
+            throw new InvalidOperationException($"No cluster nodes were found for '{target.Name}'.");
+        }
+
+        _log.Info(
+            "Collection",
+            $"Cluster nodes: {string.Join(", ", nodes.Select(n => $"{n.Name} ({n.State})"))}",
+            target.Name);
+
+        foreach (var down in nodes.Where(n => !n.IsReachable))
+        {
+            _log.Warn("Collection", $"Skipping node {down.Name}: it is {down.State}", target.Name);
+        }
+
+        using var gate = new SemaphoreSlim(MaxParallelNodes);
+
+        var outcomes = await Task.WhenAll(nodes.Where(n => n.IsReachable).Select(async node =>
+        {
+            await gate.WaitAsync(cancellationToken);
+
+            try
+            {
+                return (Node: node, Data: await CollectNodeAsync(target, node, cancellationToken), Error: (string?)null);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("Collection", $"Node {node.Name} failed: {ex.Message}", target.Name);
+                return (Node: node, Data: (HyperVTarget?)null, Error: ex.Message);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+
+        var collected = outcomes.Where(o => o.Data is not null).Select(o => o.Data!).ToList();
+
+        if (collected.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not collect any node of cluster '{target.Name}': " +
+                string.Join("; ", outcomes.Select(o => $"{o.Node.Name}: {o.Error}")));
+        }
+
+        ClusterNodes.Merge(target, collected);
+
+        target.NodeTargets.Clear();
+        target.NodeTargets.AddRange(collected);
+
+        _log.Info(
+            "Collection",
+            $"Collected {collected.Count} of {nodes.Count} cluster node(s)",
+            target.Name);
+    }
+
+    private async Task<HyperVTarget> CollectNodeAsync(
+        HyperVTarget cluster,
+        ClusterNodeRef node,
+        CancellationToken cancellationToken)
+    {
+        var connectionName = node.ConnectionName(cluster.Name);
+
+        _log.Step("Collection", $"Collecting cluster node {node.Name} via {connectionName}", cluster.Name);
+
+        var package = await CollectRemotePackageAsync(connectionName, node.Name, cancellationToken);
+
+        if (!package.Success)
+        {
+            throw new InvalidOperationException(
+                string.IsNullOrWhiteSpace(package.ErrorMessage)
+                    ? $"Remote inventory collection failed for '{connectionName}'."
+                    : package.ErrorMessage);
+        }
+
+        var nodeTarget = new HyperVTarget
+        {
+            Name = node.Name,
+            Address = connectionName,
+            Type = TargetType.ClusteredHost,
+            Validation = new TargetValidationResult
+            {
+                TargetName = node.Name,
+                IsCluster = true,
+                ClusterName = cluster.Validation.ClusterName
+            }
+        };
+
+        RemoteInventoryMapper.MapToTarget(nodeTarget, package);
+        ApplyHostDefaults(nodeTarget);
+
+        return nodeTarget;
+    }
+
+    /// <summary>Fills in cluster and host names the script left empty, and marks the hosts as connected.</summary>
+    private static void ApplyHostDefaults(HyperVTarget target)
+    {
         var primaryHost =
             target.Hosts.FirstOrDefault();
 
@@ -187,20 +328,6 @@ public class RemoteInventoryCollector : IInventoryCollector
                 dvd.HostName = primaryHost.Name;
             }
         }
-
-        progress?.Report(
-            new CollectionProgress
-            {
-                TotalTargets = 1,
-                CompletedTargets = 1,
-                TotalHosts = target.Hosts.Count,
-                TotalVirtualMachines =
-                    target.VirtualMachines.Count,
-                CurrentTarget = target.Name,
-                CurrentStage = "Remote data collection completed"
-            });
-
-        return target;
     }
 
     private async Task<RemoteInventoryPackage> CollectRemotePackageAsync(
@@ -415,6 +542,21 @@ public class RemoteInventoryCollector : IInventoryCollector
 
                 $isClusterNode = -not [string]::IsNullOrWhiteSpace($clusterName)
 
+                # The node that owns the cluster core group (the cluster name / CNO).
+                $isClusterOwner = $false
+                if ($isClusterNode) {
+                    try {
+                        $coreGroup = @(Get-ClusterGroup -ErrorAction Stop | Where-Object { $_.GroupType -eq 'Cluster' })[0]
+                        if ($null -ne $coreGroup -and $null -ne $coreGroup.OwnerNode) {
+                            $ownerName = ToStr $coreGroup.OwnerNode.Name
+                            $isClusterOwner = ($ownerName -ieq $env:COMPUTERNAME) -or ($ownerName -ieq $hostName) -or ($hostName -ilike "$ownerName.*")
+                        }
+                    }
+                    catch {
+                        $isClusterOwner = $false
+                    }
+                }
+
                 $result.Hosts = @(
                     [PSCustomObject]@{
                         Name                  = $hostName
@@ -427,6 +569,7 @@ public class RemoteInventoryCollector : IInventoryCollector
                         VirtualMachineCount   = [int]$vms.Count
                         ClusterName           = $clusterName
                         IsClusterNode         = $isClusterNode
+                        IsClusterOwner        = $isClusterOwner
                         IsConnected           = $true
                     }
                 )

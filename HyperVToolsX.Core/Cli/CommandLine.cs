@@ -55,6 +55,20 @@ public sealed class CommandLineOptions
         return Path.Combine(ExportPath, $"{Sanitize(host)}_{now:yyyyMMdd-HHmmss}{extension}");
     }
 
+    /// <summary>The folder the output goes to: <see cref="ExportPath"/> itself, or the folder of an explicit file path.</summary>
+    public string ExportFolder =>
+        ExportIsFolder ? ExportPath : Path.GetDirectoryName(Path.GetFullPath(ExportPath)) ?? ".";
+
+    /// <summary>
+    /// The file for one node of a cluster: "&lt;folder&gt;\&lt;cluster&gt;\&lt;node&gt;_&lt;yyyyMMdd-HHmmss&gt;.xlsx|csv".
+    /// </summary>
+    public string ResolveClusterNodeFile(string cluster, string node, DateTime now)
+    {
+        var extension = Format == ExportFormat.Csv ? ".csv" : ".xlsx";
+
+        return Path.Combine(ExportFolder, Sanitize(cluster), $"{Sanitize(node)}_{now:yyyyMMdd-HHmmss}{extension}");
+    }
+
     private static string Sanitize(string name)
     {
         var invalid = Path.GetInvalidFileNameChars();
@@ -367,7 +381,8 @@ public static class CommandLineParser
                             lines starting with # are ignored). Can be combined with /host.
                             One of /host or /hostfile is required.
           /export:<folder>  Folder for the output. Every host gets its own file,
-                            named <hostname>_<yyyyMMdd-HHmmss>
+                            named <hostname>_<yyyyMMdd-HHmmss>. A cluster name gets a
+                            folder <cluster>\ with one file per node
           /type:<format>    xlsx or csv. csv writes one file per tab:
                             <hostname>_<yyyyMMdd-HHmmss>-<tab>.csv
 

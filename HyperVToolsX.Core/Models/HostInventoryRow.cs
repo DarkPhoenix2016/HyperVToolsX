@@ -7,6 +7,7 @@ public class HostInventoryRow
     public string Fqdn { get; set; } = string.Empty;
     public string ClusterName { get; set; } = string.Empty;
     public bool IsClusterNode { get; set; }
+    public bool IsClusterOwner { get; set; }
     public bool IsConnected { get; set; }
 
     // Hyper-V

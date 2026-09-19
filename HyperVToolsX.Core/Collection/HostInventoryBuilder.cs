@@ -27,6 +27,7 @@ public static class HostInventoryBuilder
                 Fqdn = host.Fqdn,
                 ClusterName = host.ClusterName,
                 IsClusterNode = host.IsClusterNode,
+                IsClusterOwner = host.IsClusterOwner,
                 IsConnected = host.IsConnected,
 
                 HyperVVersion = host.HyperVVersion,
