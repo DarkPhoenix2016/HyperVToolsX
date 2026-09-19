@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
@@ -20,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\HyperVToolsX.Core\HyperVToolsX.Core.csproj" />
     <ProjectReference Include="..\HyperVToolsX.Infrastructure\HyperVToolsX.Infrastructure.csproj" />
+    <ProjectReference Include="..\HyperVToolsX.Export\HyperVToolsX.Export.csproj" />
   </ItemGroup>
 
 </Project>

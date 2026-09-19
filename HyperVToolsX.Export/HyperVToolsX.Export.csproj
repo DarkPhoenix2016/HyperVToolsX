@@ -11,4 +11,8 @@
     <ProjectReference Include="..\HyperVToolsX.Core\HyperVToolsX.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+  </ItemGroup>
+
 </Project>

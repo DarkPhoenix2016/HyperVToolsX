@@ -25,6 +25,9 @@
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
 - [Using the application](#using-the-application)
+- [Custom tabs (templates)](#custom-tabs-templates)
+- [Exporting to Excel](#exporting-to-excel)
+- [Command-line mode](#command-line-mode)
 - [Connecting to remote hosts](#connecting-to-remote-hosts)
 - [How it works](#how-it-works)
 - [Architecture](#architecture)
@@ -62,6 +65,8 @@ for auditing, documentation and troubleshooting.
   (Default, Negotiate, Kerberos, Basic, CredSSP), HTTP/HTTPS, custom port, timeout, and certificate-check options.
 - **Automatic TrustedHosts handling** for workgroup targets addressed by bare IP.
 - **Concurrent, throttled collection** — between 1 and 10 targets are collected in parallel.
+- **Custom tabs** — build your own tabs from fields of one or several inventory tabs (one row per VM), saved as XML in a `Templates` folder and loaded on every start; they are also exported as the first sheets of the workbook.
+- **Command-line mode** — `HyperVToolsX.exe /host:HV01 /export:C:\Reports /type:xlsx` collects and exports without opening the window, for scheduled tasks.
 - **Search and filter** — free-text search (`Ctrl+F`) plus filtering by cluster, host or state.
 - **Live summary bar** — VM totals, running/off counts, vCPUs, assigned memory, checkpoints and nodes queried.
 - **Data size unit preference** — display sizes as Bytes, KB, MB, GB, TB or PB.
@@ -146,7 +151,144 @@ Publish a self-contained single-file executable (see [Publishing](#publishing)),
 
 - **File** — Connect, Disconnect Selected, Disconnect All, Export to Excel, Exit
 - **Preferences** — Data Size Unit (Bytes / KB / MB / GB / TB / PB)
+- **Tools** — New Custom Tab..., Manage Custom Tabs...
 - **Help** — About HyperVToolsX
+
+## Custom tabs (templates)
+
+Besides the built-in tabs you can define your own tab containing only the fields you care about, taken from
+**one or several** inventory tabs.
+
+**Create one:** `Tools -> New Custom Tab...`
+
+1. Enter a **tab name**.
+2. Choose what each **row** is:
+   - **Virtual machines (one row per VM)** - the default. You can mix fields from any per-VM tab (`vInfo`, `vCPU`,
+     `vMemory`, `vNetwork`, `vVLAN`, `vCheckpoint`, `vIntegration`, `vStorage`, `vDisk`, `vVHD`, `vReplication`,
+     `vDVD`) plus the VM's host (`vHost`) and cluster (`vCluster`).
+   - **Hosts**, **Clusters**, **Host storage** or **Operating systems** - lists that tab's own rows (fields of that tab only).
+3. Move fields from **Available fields** to **Columns in this tab** (Add / double-click). Use the tab drop-down and the
+   filter box to find fields; every entry shows the tab it comes from. Reorder with Up / Down and optionally rename a header.
+4. **Save.** The tab appears after the built-in tabs and fills with data on every collection.
+
+`Tools -> Manage Custom Tabs...` lists, edits and deletes templates.
+
+**How VM rows are combined.** Each VM gets exactly one row. Fields from another tab are looked up for that VM
+(by VM id where available, otherwise by VM name and host; VHD files through the VM's disks). If a VM has **several**
+entries in that tab - two network adapters, several disks - they are collapsed into one cell separated by `; `
+(for example `00-15-5D-01, 00-15-5D-02`), in the same order across columns of the same tab, so the Nth value of one
+`vNetwork` column lines up with the Nth value of another. A VM with no entry leaves the cell empty. Collapsed
+cells sort by their first value.
+
+**Where they are stored.** Each template is one XML file in a `Templates` folder next to `HyperVToolsX.exe`
+(created automatically on first start). On every start the app reads all `*.xml` files in that folder and builds a
+tab for each one, so templates can also be copied between machines or edited by hand:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<CustomTab Name="Capacity" Source="vInfo">
+  <DataGrid>
+    <Column Source="vInfo" Field="Name" Header="VM Name" />
+    <Column Source="vInfo" Field="HostName" Header="Host" />
+    <Column Source="vMemory" Field="Startup" Header="Startup Memory" />
+    <Column Source="vNetwork" Field="MacAddress" Header="MAC Addresses" />
+  </DataGrid>
+</CustomTab>
+```
+
+- The root `Source` is the row source: `vInfo` means one row per VM; `vHost`, `vCluster`, `vHostStorage` and `vOS`
+  list that tab's rows. Each `Column` has the tab it comes from (`Source`) and the property name (`Field`).
+- Files from the first version (no `Source` on columns) still load. One whose root `Source` was a per-VM tab other than
+  `vInfo` (for example `vNetwork`, formerly one row per adapter) now loads as a one-row-per-VM tab with those columns collapsed.
+- Files that are malformed, use an unknown source, or have no valid columns are skipped and reported in the
+  **Live Log**; columns with an unknown field or a tab not allowed for the row source are ignored.
+- The tab name is also the file name and the Excel sheet name, so it is limited to 31 characters, can't contain
+  `\ / ? * [ ] :`, and can't reuse a built-in tab name.
+- Size fields follow the *Data Size Unit* preference on screen, like the built-in tabs.
+
+## Exporting to Excel
+
+`File → Export to Excel...` (`Ctrl+E`) or the **Export** button writes the current inventory snapshot to an
+`.xlsx` workbook using ClosedXML.
+
+- **Custom tabs come first:** each template is written as a sheet, in the order of its columns, before the built-in sheets.
+- One worksheet per built-in tab: `vInfo`, `vCPU`, `vMemory`, `vNetwork`, `vVLAN`, `vCheckpoint`, `vIntegration`,
+  `vStorage`, `vDisk`, `vVHD`, `vReplication`, `vDVD`, `vCluster`, `vHost` (host, OS and storage joined as on screen), plus `vHostStorage` and `vOS`.
+- Built-in sheets include every collected field; custom sheets contain only the template's columns and headers.
+- Header row is styled, frozen and auto-filtered; columns are auto-sized.
+- Size columns (memory, VHD sizes, host memory, etc.) are converted to the unit currently selected under
+  *Preferences → Data Size Unit*, which is **GB** by default, and the unit is shown in the header, e.g.
+  `Memory Assigned (GB)`. Values stay numeric so they sort and calculate correctly.
+- List values are joined with `; `; text is never interpreted as a formula.
+- The export runs off the UI thread; the status bar confirms when it is complete.
+
+## Command-line mode
+
+Start the exe **with arguments** and it runs headless: it collects the given hosts, writes the export and exits with
+a code, without showing the window. Without arguments the normal window opens.
+
+```
+HyperVToolsX.exe /host:<hostname> /export:<folder> /type:<xlsx|csv> [options]
+HyperVToolsX.exe /hostfile:<hosts.txt> /export:<folder> /type:<xlsx|csv> [options]
+```
+
+The only required inputs are **which hosts**, **where to save** (`/export`, a folder) and **the format** (`/type`);
+the file name is generated for you.
+
+| Option | Description |
+| --- | --- |
+| `/host:<name>` | Hyper-V host or cluster name. Several: `/host:HV01,HV02` |
+| `/hostfile:<path>` | Text file with host names, one per line. Blank lines and lines starting with `#` are ignored; commas and semicolons also separate names. Can be combined with `/host`. One of `/host` or `/hostfile` is required |
+| `/export:<folder>` | **Required.** Folder for the output (created if missing). Every host gets its own file |
+| `/type:<format>` | **Required with a folder.** `xlsx` or `csv` |
+| `/user:<username>` | Username (`domain\user`). Without it the current Windows user is used |
+| `/password:<pwd>` | Password (use with `/user`) |
+| `/auth:<method>` | `Default`, `Negotiate`, `Kerberos`, `Basic`, `CredSSP` |
+| `/ssl` | Use HTTPS (port 5986) |
+| `/port:<number>` | Custom port (default 5985/5986) |
+| `/skipca` / `/skipcn` | Skip the CA certificate / CN hostname check |
+| `/timeout:<secs>` | Connection timeout (default 30) |
+| `/unit:<unit>` | Unit for exported sizes: `Bytes`, `KB`, `MB`, `GB`, `TB`, `PB` (default `GB`) |
+| `/silent` | Suppress all output (for scheduled tasks) |
+| `/?` | Show the help |
+
+Switches are case-insensitive and may also be written `-name` or `--name`, with `:` or `=` before the value.
+
+```
+HyperVToolsX.exe /host:HV01 /export:C:\Reports /type:xlsx
+HyperVToolsX.exe /hostfile:C:\hosts.txt /export:D:\Out /type:xlsx /ssl
+HyperVToolsX.exe /host:HV01.domain.com /export:D:\Out /type:csv /auth:Kerberos
+```
+
+**One file per host.** Every host is collected on its own (up to 10 at a time) and written to its own file, named
+`<hostname>_<yyyyMMdd-HHmmss>` in the export folder, for example `C:\Reports\HV01_20260920-031500.xlsx`. With
+`/hostfile` listing 50 hosts you get 50 files. A host that fails (unreachable, no Hyper-V, bad credentials) is reported
+and skipped without affecting the others. Characters that are not allowed in file names are replaced with `_`, and every run
+has a new timestamp, so scheduled runs never overwrite each other.
+
+With a **single** host, a complete file path also works instead of a folder (`/export:D:\out.xlsx`); the format then
+follows the extension and `/type` is optional. With several hosts `/export` must be a folder.
+
+- **It uses the same pipeline as the window**: the same validation, collection and connection behaviour.
+- **Custom tabs are included automatically** for both `.xlsx` and `.csv`: the `Templates` folder next to the exe is checked
+  on every run, and if it holds templates they are exported first (the console lists which ones, or says none were found).
+- **.csv** writes one file per tab for each host: `HV01_20260920-031500-vInfo.csv`, `...-vCPU.csv`, and so on (custom
+  tabs are named after the tab). Tabs without rows are skipped. Files are UTF-8 with a BOM, and text that starts with `=`, `+`, `-` or
+  `@` gets a leading apostrophe so Excel doesn't run it as a formula.
+- **Exit codes:** `0` every host exported, `1` failure (no host exported, cancelled, or an error), `2` invalid arguments,
+  `3` some hosts exported and at least one failed.
+- **Ctrl+C** cancels a run.
+
+Notes:
+
+- The app manifest requests administrator rights, so starting it from a normal (non-elevated) prompt shows the UAC
+  prompt and opens the output in a **new console window**; it stays open until you press a key. Run it from an
+  elevated prompt to see the output in that prompt, or use `/silent` in a scheduled task set to *Run with highest
+  privileges*.
+- The exe is a Windows (GUI) program, so `cmd` and PowerShell don't wait for it by default. To wait and read the exit
+  code use `start /wait HyperVToolsX.exe ...` in `cmd`, or `Start-Process -Wait -PassThru` in PowerShell.
+- `/password` is visible in the process list and in the task definition. Prefer the current Windows identity
+  (omit `/user`) or a credential you are comfortable storing that way.
 
 ## Connecting to remote hosts
 
@@ -201,11 +343,11 @@ The solution follows a layered design with a provider-agnostic core.
 
 | Project | Type | Responsibility |
 | --- | --- | --- |
-| `HyperVToolsX.Core` | Class library (`net10.0`) | Models, enums and interfaces (`IHyperVProvider`, `IInventoryCollector`, `IInventoryCache`, `ITargetManager`, `ITargetValidator`, `IHostReportCollector`), collection request/progress/result types, `ILiveLog` |
-| `HyperVToolsX.Infrastructure` | Class library (`net10.0`) | `PowerShellExecutor`, `RemoteScriptRunner`, `TrustedHostsManager`, `ConnectionNameResolver`, `TargetValidator`, `HyperVProvider`, collectors, `CollectionOrchestrator`, `InventoryCache`. References `Microsoft.PowerShell.SDK` 7.6.6 |
-| `HyperVToolsX.Export` | Class library (`net10.0`) | Export project — reserved for Excel export (not yet wired into the UI) |
+| `HyperVToolsX.Core` | Class library (`net10.0`) | Models, enums and interfaces (`IHyperVProvider`, `IInventoryCollector`, `IInventoryCache`, `ITargetManager`, `ITargetValidator`, `IHostReportCollector`), collection request/progress/result types, `ILiveLog`, the field catalog (`InventoryCatalog`), `CustomTabTemplate` and the command-line parser |
+| `HyperVToolsX.Infrastructure` | Class library (`net10.0`) | `PowerShellExecutor`, `RemoteScriptRunner`, `TrustedHostsManager`, `ConnectionNameResolver`, `TargetValidator`, `HyperVProvider`, collectors, `CollectionOrchestrator`, `InventoryCache`, `TemplateStore` (XML templates). References `Microsoft.PowerShell.SDK` 7.6.6 |
+| `HyperVToolsX.Export` | Class library (`net10.0`) | `ExcelInventoryExporter` and `CsvInventoryExporter` (implement `IInventoryExporter`, write custom tabs first) — writes the inventory to `.xlsx` using [ClosedXML](https://github.com/ClosedXML/ClosedXML) |
 | `HyperVToolsX.App` | WPF app (`net10.0-windows10.0.17763.0`) | Main window, target manager view, About window, value converters, app manifest |
-| `HyperVToolsX.Tests` | xUnit tests | Provider, target manager and validator tests |
+| `HyperVToolsX.Tests` | xUnit tests | Provider, target manager, validator, exporter, template store, custom-tab join and command-line tests |
 
 Dependency direction: `App → Infrastructure → Core`, `App → Export`, `Tests → Core, Infrastructure`.
 
@@ -217,13 +359,14 @@ HyperVToolsX/
 ├── Resources/                        Logo assets (logo.png, icon)
 ├── HyperVToolsX.App/                 WPF client
 │   ├── MainWindow.xaml(.cs)          Tabbed inventory grids, menus, shortcuts
-│   ├── Views/                        TargetManagerView, AboutWindow
+│   ├── Views/                        TargetManagerView, AboutWindow, TemplateEditor/ManagerWindow
+│   ├── Cli/                          Command-line runner and console handling
 │   ├── Converters/                   BoolToGlyph, ByteSize, StatusToBrush
 │   ├── Properties/                   Settings, publish profiles
 │   └── app.manifest                  requireAdministrator
-├── HyperVToolsX.Core/                Models, enums, interfaces, collection types
+├── HyperVToolsX.Core/                Models, enums, interfaces, collection types, custom-tab templates
 ├── HyperVToolsX.Infrastructure/      PowerShell, remoting, validation, collectors
-├── HyperVToolsX.Export/              Export library (placeholder)
+├── HyperVToolsX.Export/              Excel export (ClosedXML)
 └── HyperVToolsX.Tests/               xUnit tests
 ```
 
@@ -241,7 +384,7 @@ dotnet build HyperVToolsX.slnx -c Release
 dotnet test HyperVToolsX.Tests
 ```
 
-> The existing tests exercise the local machine (`GetLocalHost`, `GetLocalVirtualMachines`, local target
+> The provider and validator tests exercise the local machine (`GetLocalHost`, `GetLocalVirtualMachines`, local target
 > validation), so they require a Windows machine with the Hyper-V role and module, and elevation.
 
 ### Publishing
@@ -273,7 +416,9 @@ before scaling out.
 - [x] Local and remote (WinRM) collection with staged validation
 - [x] Cluster discovery and cluster-aware roll-up
 - [x] Fourteen inventory tabs, search/filter, size-unit preference, live log
-- [ ] Excel export (`HyperVToolsX.Export` not yet wired to the UI)
+- [x] Excel export to `.xlsx` (ClosedXML)
+- [x] Custom tabs saved as XML templates and exported as leading sheets
+- [x] Command-line mode (`/host`, `/export`, `.xlsx` and `.csv`) for scheduled exports
 - [ ] Larger-fleet tuning (design target: 100+ hosts, 1,000+ VMs)
 - [ ] Broader automated test coverage (mock-based tests that don't require Hyper-V)
 

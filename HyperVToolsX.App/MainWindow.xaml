@@ -143,7 +143,10 @@
             <MenuItem Header="_View">
                 <MenuItem Header="Refresh" Click="RefreshMenuItem_Click" InputGestureText="F5"/>
             </MenuItem>
-            <MenuItem Header="_Tools"/>
+            <MenuItem Header="_Tools">
+                <MenuItem Header="New Custom Tab..." Click="NewCustomTabMenuItem_Click"/>
+                <MenuItem Header="Manage Custom Tabs..." Click="ManageCustomTabsMenuItem_Click"/>
+            </MenuItem>
             <MenuItem Header="_Help">
                 <MenuItem Header="About HyperVToolsX"
               Click="AboutMenuItem_Click"/>
@@ -397,7 +400,8 @@
             </Grid>
         </Grid>
 
-        <TabControl Grid.Row="5"
+        <TabControl x:Name="InventoryTabControl"
+            Grid.Row="5"
             Margin="8,0,8,4">
             <TabControl.ItemsPanel>
                 <ItemsPanelTemplate>

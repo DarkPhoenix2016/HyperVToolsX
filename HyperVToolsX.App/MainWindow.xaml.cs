@@ -6,10 +6,13 @@ using HyperVToolsX.Core.Interfaces;
 using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Core.Models;
 using HyperVToolsX.Core.Models.Details;
+using HyperVToolsX.Core.Templates;
+using HyperVToolsX.Export;
 using HyperVToolsX.Infrastructure.Collection;
 using HyperVToolsX.Infrastructure.HyperV;
 using HyperVToolsX.Infrastructure.PowerShellEngine;
 using HyperVToolsX.Infrastructure.Remoting;
+using HyperVToolsX.Infrastructure.Templates;
 using HyperVToolsX.Infrastructure.Validation;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -52,6 +55,12 @@ public partial class MainWindow : Window
 
     private TargetManagerView? _targetManagerView;
 
+    private readonly TemplateStore _templateStore;
+    private IReadOnlyList<CustomTabTemplate> _templates = [];
+    private readonly List<CustomTabHost> _customTabs = [];
+
+    private sealed record CustomTabHost(TabItem Tab, CustomTabTemplate Template, DataGrid Grid);
+
     public MainWindow()
     {
         InitializeComponent();
@@ -78,6 +87,12 @@ public partial class MainWindow : Window
 
         ByteSizeConverter.CurrentUnit = SizeUnit.GB;
         GbUnitMenuItem.IsChecked = true;
+
+        // Custom tabs live as XML files in a Templates folder beside the exe;
+        // the folder is created on first run and read on every start.
+        _templateStore = new TemplateStore(TemplateStore.DefaultFolder, _liveLog);
+        _templates = _templateStore.LoadAll();
+        RebuildCustomTabs();
 
         Loaded += MainWindow_Loaded;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
@@ -213,6 +228,7 @@ public partial class MainWindow : Window
             LoadCollection(_dvds, snapshot.Dvds, DvdDataGrid);
             LoadCollection(_clusters, snapshot.Clusters, ClusterDataGrid);
             LoadHostInventory(snapshot);
+            RefreshCustomTabs(snapshot);
 
             PopulateFilters();
             UpdateSummary(snapshot);
@@ -281,58 +297,145 @@ public partial class MainWindow : Window
     {
         _hostInventoryRows.Clear();
 
-        foreach (var host in snapshot.Hosts)
+        foreach (var row in HostInventoryBuilder.Build(snapshot))
         {
-            var storage = snapshot.HostStorage.FirstOrDefault(x =>
-                string.Equals(x.HostName, host.Name, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(x.ComputerName, host.Name, StringComparison.OrdinalIgnoreCase));
-
-            var operatingSystem = snapshot.OperatingSystems.FirstOrDefault(x =>
-                string.Equals(x.ComputerName, host.Name, StringComparison.OrdinalIgnoreCase));
-
-            _hostInventoryRows.Add(new HostInventoryRow
-            {
-                HostName = host.Name,
-                Fqdn = host.Fqdn,
-                ClusterName = host.ClusterName,
-                IsClusterNode = host.IsClusterNode,
-                IsConnected = host.IsConnected,
-
-                HyperVVersion = host.HyperVVersion,
-                LogicalProcessorCount = host.LogicalProcessorCount,
-                VirtualMachineCount = host.VirtualMachineCount,
-
-                TotalMemoryBytes = host.TotalMemoryBytes,
-                UsedMemoryBytes = host.UsedMemoryBytes,
-
-                OperatingSystem = operatingSystem?.Caption ?? host.OperatingSystem,
-                OSVersion = operatingSystem?.Version ?? string.Empty,
-                OSBuildNumber = operatingSystem?.BuildNumber ?? string.Empty,
-                OSArchitecture = operatingSystem?.OSArchitecture ?? string.Empty,
-                LastBootUpTime = operatingSystem?.LastBootUpTime,
-
-                TotalVisibleMemorySizeKb = operatingSystem?.TotalVisibleMemorySizeKb ?? 0,
-                FreePhysicalMemoryKb = operatingSystem?.FreePhysicalMemoryKb ?? 0,
-
-                VirtualHardDiskPath = storage?.VirtualHardDiskPath ?? string.Empty,
-                VirtualMachinePath = storage?.VirtualMachinePath ?? string.Empty,
-                ParentSnapshotPath = storage?.ParentSnapshotPath ?? string.Empty,
-
-                MaximumStorageMigrations = storage?.MaximumStorageMigrations ?? 0,
-                MaximumVirtualMachineMigrations = storage?.MaximumVirtualMachineMigrations ?? 0,
-                VirtualMachineMigrationEnabled = storage?.VirtualMachineMigrationEnabled ?? false,
-                VirtualMachineMigrationAuthenticationType =
-                    storage?.VirtualMachineMigrationAuthenticationType ?? string.Empty,
-                VirtualMachineMigrationPerformanceOption =
-                    storage?.VirtualMachineMigrationPerformanceOption ?? string.Empty,
-                UseAnyNetworkForMigration = storage?.UseAnyNetworkForMigration ?? false,
-
-                EnableEnhancedSessionMode = storage?.EnableEnhancedSessionMode ?? false,
-                IsDeleted = storage?.IsDeleted ?? false
-            });
+            _hostInventoryRows.Add(row);
         }
 
         HostDataGrid.ItemsSource = _hostInventoryRows;
+    }
+
+    // =========================================================
+    // CUSTOM TABS
+    // =========================================================
+
+    private void NewCustomTabMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var editor = new TemplateEditorWindow(_templates.Select(t => t.Name)) { Owner = this };
+
+        if (editor.ShowDialog() != true || editor.Result is not { } created)
+        {
+            return;
+        }
+
+        try
+        {
+            _templateStore.Save(created);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Could not save the custom tab to {_templateStore.Folder}:{Environment.NewLine}{ex.Message}",
+                "Custom Tabs",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return;
+        }
+
+        _templates = [.. _templates, created];
+        RebuildCustomTabs();
+        RefreshCustomTabs(_inventoryCache.GetSnapshot());
+
+        InventoryTabControl.SelectedItem =
+            _customTabs.FirstOrDefault(t => Equals(t.Tab.Header, created.Name))?.Tab;
+
+        StatusText.Text = $"Custom tab '{created.Name}' saved.";
+    }
+
+    private void ManageCustomTabsMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        var manager = new TemplateManagerWindow(_templateStore, _templates) { Owner = this };
+        manager.ShowDialog();
+
+        if (manager.Changed)
+        {
+            _templates = manager.Templates.ToList();
+            RebuildCustomTabs();
+            RefreshCustomTabs(_inventoryCache.GetSnapshot());
+        }
+    }
+
+    /// <summary>Recreates one tab per template after the last built-in tab.</summary>
+    private void RebuildCustomTabs()
+    {
+        var selectedHeader = (InventoryTabControl.SelectedItem as TabItem)?.Header as string;
+
+        foreach (var custom in _customTabs)
+        {
+            InventoryTabControl.Items.Remove(custom.Tab);
+        }
+
+        _customTabs.Clear();
+
+        foreach (var template in _templates)
+        {
+            var columns = CustomTabBuilder.ResolveColumns(template);
+
+            if (columns.Count == 0)
+            {
+                continue;
+            }
+
+            var grid = BuildCustomGrid(columns);
+
+            var tab = new TabItem
+            {
+                Header = template.Name,
+                Content = grid,
+                ToolTip = InventoryCatalog.IsVmRowSource(template.Source)
+                    ? "Custom tab (one row per VM)"
+                    : $"Custom tab ({template.Source})"
+            };
+
+            InventoryTabControl.Items.Add(tab);
+            _customTabs.Add(new CustomTabHost(tab, template, grid));
+
+            if (template.Name == selectedHeader)
+            {
+                InventoryTabControl.SelectedItem = tab;
+            }
+        }
+    }
+
+    private static DataGrid BuildCustomGrid(IReadOnlyList<ResolvedColumn> columns)
+    {
+        var grid = new DataGrid
+        {
+            AutoGenerateColumns = false,
+            IsReadOnly = true,
+            CanUserAddRows = false,
+            CanUserDeleteRows = false,
+            SelectionMode = DataGridSelectionMode.Single,
+            SelectionUnit = DataGridSelectionUnit.FullRow,
+            EnableRowVirtualization = true,
+            EnableColumnVirtualization = true
+        };
+
+        for (var i = 0; i < columns.Count; i++)
+        {
+            grid.Columns.Add(new DataGridTextColumn
+            {
+                Header = columns[i].Header,
+                Binding = new Binding($"Values[{i}]")
+                {
+                    Mode = BindingMode.OneWay,
+                    Converter = new CustomCellConverter(columns[i].Field.SizeSourceUnit)
+                },
+                SortMemberPath = $"SortKeys[{i}]",
+                Width = DataGridLength.Auto
+            });
+        }
+
+        return grid;
+    }
+
+    private void RefreshCustomTabs(InventorySnapshot snapshot)
+    {
+        foreach (var custom in _customTabs)
+        {
+            custom.Grid.ItemsSource = CustomTabBuilder.Build(snapshot, custom.Template).Rows;
+        }
     }
 
     // =========================================================
@@ -527,23 +630,53 @@ public partial class MainWindow : Window
         StatusText.Text = "Inventory view refreshed from the last collection.";
     }
 
-    private void ExportToExcelMenuItem_Click(object sender, RoutedEventArgs e)
+    private async void ExportToExcelMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_virtualMachines.Count == 0)
+        var snapshot = _inventoryCache.GetSnapshot();
+
+        if (snapshot.VirtualMachines.Count == 0 && snapshot.Hosts.Count == 0)
         {
             ShowInfo("There's no inventory to export yet. Run a collection first.", "Export to Excel");
             return;
         }
 
-        // NOTE: wire this to HyperVToolsX.Export once its public API is available here —
-        // e.g. an IInventoryExporter.ExportAsync(_inventoryCache.GetSnapshot(), path).
-        // Left as an explicit TODO rather than a silent no-op so it's obvious in the UI
-        // that export isn't wired up yet, instead of a menu item that does nothing.
-        ShowInfo(
-            "Excel export isn't wired up yet in this build.\n\n" +
-            "This should call into HyperVToolsX.Export with the current snapshot once " +
-            "that project's exporter interface is available here.",
-            "Export to Excel");
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export to Excel",
+            Filter = "Excel Workbook (*.xlsx)|*.xlsx",
+            DefaultExt = ".xlsx",
+            FileName = $"HyperVToolsX-{DateTime.Now:yyyyMMdd-HHmmss}.xlsx"
+        };
+
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        StatusText.Text = "Exporting inventory to Excel...";
+        Mouse.OverrideCursor = Cursors.Wait;
+
+        try
+        {
+            var sheetCount = await new ExcelInventoryExporter()
+                .ExportAsync(snapshot, dialog.FileName, ByteSizeConverter.CurrentUnit, _templates);
+
+            StatusText.Text = $"Exported {sheetCount} sheets to {dialog.FileName}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Export failed.";
+            MessageBox.Show(
+                this,
+                $"The export failed:{Environment.NewLine}{ex.Message}",
+                "Export to Excel",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
     }
 
     private void ExitMenuItem_Click(object sender, RoutedEventArgs e)
@@ -603,6 +736,11 @@ public partial class MainWindow : Window
         CheckpointDataGrid.Items.Refresh();
         HostDataGrid.Items.Refresh();
         ClusterDataGrid.Items.Refresh();
+
+        foreach (var custom in _customTabs)
+        {
+            custom.Grid.Items.Refresh();
+        }
 
         UpdateSummary(_inventoryCache.GetSnapshot());
     }
