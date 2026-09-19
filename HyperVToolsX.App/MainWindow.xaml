@@ -336,16 +336,6 @@
                                         SortMemberPath="ProcessorCount"
                                         Width="120"/>
 
-                            <DataGridTextColumn Header="Memory Assigned"
-                                        Binding="{Binding MemoryAssigned}"
-                                        SortMemberPath="MemoryAssigned"
-                                        Width="140"/>
-
-                            <DataGridTextColumn Header="Memory Demand"
-                                        Binding="{Binding MemoryDemand}"
-                                        SortMemberPath="MemoryDemand"
-                                        Width="140"/>
-
                             <DataGridTextColumn Header="Memory Status"
                                         Binding="{Binding MemoryStatus}"
                                         SortMemberPath="MemoryStatus"
@@ -356,20 +346,35 @@
                                         SortMemberPath="DynamicMemoryEnabled"
                                         Width="130"/>
 
-                            <DataGridTextColumn Header="Memory Startup"
-                                        Binding="{Binding MemoryStartup}"
-                                        SortMemberPath="MemoryStartup"
-                                        Width="140"/>
+                            <DataGridTextColumn
+                                Header="Memory Assigned"
+                                Binding="{Binding MemoryAssigned, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryAssigned"
+                                Width="140"/>
 
-                            <DataGridTextColumn Header="Memory Minimum"
-                                        Binding="{Binding MemoryMinimum}"
-                                        SortMemberPath="MemoryMinimum"
-                                        Width="140"/>
+                            <DataGridTextColumn
+                                Header="Memory Demand"
+                                Binding="{Binding MemoryDemand, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryDemand"
+                                Width="140"/>
 
-                            <DataGridTextColumn Header="Memory Maximum"
-                                        Binding="{Binding MemoryMaximum}"
-                                        SortMemberPath="MemoryMaximum"
-                                        Width="140"/>
+                            <DataGridTextColumn
+                                Header="Memory Startup"
+                                Binding="{Binding MemoryStartup, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryStartup"
+                                Width="140"/>
+
+                            <DataGridTextColumn
+                                Header="Memory Minimum"
+                                Binding="{Binding MemoryMinimum, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryMinimum"
+                                Width="140"/>
+
+                            <DataGridTextColumn
+                                Header="Memory Maximum"
+                                Binding="{Binding MemoryMaximum, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryMaximum"
+                                Width="140"/>
 
                             <DataGridTextColumn Header="Generation"
                                         Binding="{Binding Generation}"
@@ -766,30 +771,29 @@
                                     SortMemberPath="DynamicMemoryEnabled"
                                     Width="140"/>
 
-                        <DataGridTextColumn Header="Maximum"
-                                    Binding="{Binding Maximum}"
-                                    SortMemberPath="Maximum"
-                                    Width="150"/>
+                        <DataGridTextColumn
+                            Header="Maximum"
+                            Binding="{Binding Maximum, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="Maximum"
+                            Width="150"/>
 
-                        <DataGridTextColumn Header="Maximum/NUMA Node"
-                                    Binding="{Binding MaximumPerNumaNode}"
-                                    SortMemberPath="MaximumPerNumaNode"
-                                    Width="160"/>
+                        <DataGridTextColumn
+                            Header="Maximum/NUMA Node"
+                            Binding="{Binding MaximumPerNumaNode, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="MaximumPerNumaNode"
+                            Width="160"/>
 
-                        <DataGridTextColumn Header="Minimum"
-                                    Binding="{Binding Minimum}"
-                                    SortMemberPath="Minimum"
-                                    Width="150"/>
+                        <DataGridTextColumn
+                            Header="Minimum"
+                            Binding="{Binding Minimum, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="Minimum"
+                            Width="150"/>
 
-                        <DataGridTextColumn Header="Priority"
-                                    Binding="{Binding Priority}"
-                                    SortMemberPath="Priority"
-                                    Width="100"/>
-
-                        <DataGridTextColumn Header="Startup"
-                                    Binding="{Binding Startup}"
-                                    SortMemberPath="Startup"
-                                    Width="150"/>
+                       <DataGridTextColumn
+                            Header="Startup"
+                            Binding="{Binding Startup, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="Startup"
+                            Width="150"/>
 
                         <DataGridTextColumn Header="Huge Pages"
                                     Binding="{Binding HugePagesEnabled}"
@@ -1079,9 +1083,9 @@
                     Header="Version" />
 
                             <DataGridTextColumn
-                    Width="150"
-                    Binding="{Binding SizeOfSystemFiles}"
-                    Header="System Files Size" />
+    Width="180"
+    Binding="{Binding SizeOfSystemFiles, Converter={StaticResource ByteSizeConverter}}"
+    Header="System Files Size" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
@@ -1256,9 +1260,9 @@
                     Header="Smart Paging In Use" />
 
                             <DataGridTextColumn
-                    Width="150"
-                    Binding="{Binding SizeOfSystemFiles}"
-                    Header="System Files Size" />
+    Width="150"
+    Binding="{Binding SizeOfSystemFiles, Converter={StaticResource ByteSizeConverter}}"
+    Header="System Files Size" />
 
                             <DataGridTextColumn
                     Width="280"
@@ -1516,34 +1520,34 @@
                     Header="VHD Type" />
 
                             <DataGridTextColumn
-                    Width="160"
-                    Binding="{Binding FileSize}"
-                    Header="File Size" />
+    Width="160"
+    Binding="{Binding FileSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="File Size" />
 
                             <DataGridTextColumn
-                    Width="160"
-                    Binding="{Binding Size}"
-                    Header="Virtual Size" />
+    Width="160"
+    Binding="{Binding Size, Converter={StaticResource ByteSizeConverter}}"
+    Header="Virtual Size" />
 
                             <DataGridTextColumn
-                    Width="160"
-                    Binding="{Binding MinimumSize}"
-                    Header="Minimum Size" />
+    Width="160"
+    Binding="{Binding MinimumSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Minimum Size" />
 
                             <DataGridTextColumn
-                    Width="180"
-                    Binding="{Binding LogicalSectorSize}"
-                    Header="Logical Sector Size" />
+    Width="180"
+    Binding="{Binding LogicalSectorSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Logical Sector Size" />
 
                             <DataGridTextColumn
-                    Width="180"
-                    Binding="{Binding PhysicalSectorSize}"
-                    Header="Physical Sector Size" />
+    Width="180"
+    Binding="{Binding PhysicalSectorSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Physical Sector Size" />
 
                             <DataGridTextColumn
-                    Width="150"
-                    Binding="{Binding BlockSize}"
-                    Header="Block Size" />
+    Width="150"
+    Binding="{Binding BlockSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Block Size" />
 
                             <DataGridTextColumn
                     Width="450"
@@ -2015,9 +2019,9 @@
                     Binding="{Binding CrossSubnetThreshold}" />
 
                             <DataGridTextColumn
-                    Width="190"
-                    Header="Shared Volume Block Cache (MB)"
-                    Binding="{Binding SharedVolumeBlockCacheSizeInMB}" />
+    Header="Shared Volume Block Cache"
+    Binding="{Binding SharedVolumeBlockCacheSizeInMB, Converter={StaticResource ByteSizeConverter}, ConverterParameter=MB}"
+    Width="220"/>
 
                             <DataGridTextColumn
                     Width="260"
@@ -2090,15 +2094,15 @@
 
                             <!-- Memory -->
                             <DataGridTextColumn
-                    Width="150"
-                    Header="Total Memory (Bytes)"
-                    Binding="{Binding TotalMemoryBytes}" />
+    Width="150"
+    Header="Total Memory"
+    Binding="{Binding TotalMemoryBytes, Converter={StaticResource ByteSizeConverter}}" />
+
 
                             <DataGridTextColumn
-                    Width="150"
-                    Header="Used Memory (Bytes)"
-                    Binding="{Binding UsedMemoryBytes}" />
-
+    Width="150"
+    Header="Used Memory"
+    Binding="{Binding UsedMemoryBytes, Converter={StaticResource ByteSizeConverter}}" />
 
                             <!-- Operating System -->
                             <DataGridTextColumn
@@ -2129,14 +2133,14 @@
 
                             <!-- OS Memory -->
                             <DataGridTextColumn
-                    Width="180"
-                    Header="Visible Memory (KB)"
-                    Binding="{Binding TotalVisibleMemorySizeKb}" />
+    Width="180"
+    Header="Visible Memory"
+    Binding="{Binding TotalVisibleMemorySizeKb, Converter={StaticResource ByteSizeConverter}, ConverterParameter=KB}" />
 
                             <DataGridTextColumn
-                    Width="180"
-                    Header="Free Physical Memory (KB)"
-                    Binding="{Binding FreePhysicalMemoryKb}" />
+    Width="180"
+    Header="Free Physical Memory"
+    Binding="{Binding FreePhysicalMemoryKb, Converter={StaticResource ByteSizeConverter}, ConverterParameter=KB}" />
 
 
                             <!-- Hyper-V Storage -->
