@@ -1,12 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "MprRj4fy9F4=",
+  "dgSpecHash": "ZcwZHMYoXJM=",
   "success": true,
   "projectFilePath": "Y:\\HyperVToolsX\\HyperVToolsX.Core\\HyperVToolsX.Core.csproj",
-  "expectedPackageFiles": [
-    "C:\\Users\\chari\\.nuget\\packages\\microsoft.netcore.app.runtime.win-x64\\10.0.12\\microsoft.netcore.app.runtime.win-x64.10.0.12.nupkg.sha512",
-    "C:\\Users\\chari\\.nuget\\packages\\microsoft.windowsdesktop.app.runtime.win-x64\\10.0.12\\microsoft.windowsdesktop.app.runtime.win-x64.10.0.12.nupkg.sha512",
-    "C:\\Users\\chari\\.nuget\\packages\\microsoft.aspnetcore.app.runtime.win-x64\\10.0.12\\microsoft.aspnetcore.app.runtime.win-x64.10.0.12.nupkg.sha512"
-  ],
+  "expectedPackageFiles": [],
   "logs": []
 }
