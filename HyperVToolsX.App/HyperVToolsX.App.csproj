@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HyperVToolsX.Core\HyperVToolsX.Core.csproj" />
+    <ProjectReference Include="..\HyperVToolsX.Export\HyperVToolsX.Export.csproj" />
+    <ProjectReference Include="..\HyperVToolsX.Infrastructure\HyperVToolsX.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
