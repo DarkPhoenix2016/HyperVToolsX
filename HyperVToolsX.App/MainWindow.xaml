@@ -145,7 +145,8 @@
             </MenuItem>
             <MenuItem Header="_Tools"/>
             <MenuItem Header="_Help">
-                <MenuItem Header="About HyperVToolsX" Click="AboutMenuItem_Click"/>
+                <MenuItem Header="About HyperVToolsX"
+              Click="AboutMenuItem_Click"/>
             </MenuItem>
         </Menu>
 
