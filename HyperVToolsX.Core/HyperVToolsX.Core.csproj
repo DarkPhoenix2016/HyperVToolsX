@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyTitle>HyperVToolsX.Core</AssemblyTitle>
+    <OutputType>Library</OutputType>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,25 +1,34 @@
-﻿using HyperVToolsX.App.Views;
+﻿using HyperVToolsX.App.Converters;
+using HyperVToolsX.App.Views;
 using HyperVToolsX.Core.Collection;
+using HyperVToolsX.Core.Enums;
+using HyperVToolsX.Core.Interfaces;
 using HyperVToolsX.Core.Models;
 using HyperVToolsX.Core.Models.Details;
 using HyperVToolsX.Infrastructure.Collection;
+using HyperVToolsX.Infrastructure.HyperV;
+using HyperVToolsX.Infrastructure.PowerShellEngine;
+using HyperVToolsX.Infrastructure.Validation;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Data;
-using HyperVToolsX.App.Converters;
-using HyperVToolsX.Core.Enums;
+using System.Windows.Input;
 
 namespace HyperVToolsX.App;
 
 public partial class MainWindow : Window
 {
     private readonly InventoryCache _inventoryCache;
+    private readonly ITargetManager _targetManager;
+    private readonly ITargetValidator _targetValidator;
+    private readonly CollectionOrchestrator _collectionOrchestrator;
 
     private readonly ObservableCollection<HyperVVirtualMachine> _virtualMachines = [];
     private readonly ObservableCollection<VmProcessorInfo> _processors = [];
     private readonly ObservableCollection<VmMemoryInfo> _memories = [];
-
     private readonly ObservableCollection<VmNetworkAdapter> _networkAdapters = [];
     private readonly ObservableCollection<VmNetworkVlanInfo> _networkVlans = [];
     private readonly ObservableCollection<VmCheckpointInfo> _checkpoints = [];
@@ -30,16 +39,11 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<VmReplicationInfo> _replications = [];
     private readonly ObservableCollection<VmDvdInfo> _dvds = [];
     private readonly ObservableCollection<ClusterInfo> _clusters = [];
-
-
-
     private readonly ObservableCollection<HostInventoryRow> _hostInventoryRows = [];
     private readonly ObservableCollection<HyperVHost> _hosts = [];
 
-
     private ICollectionView? _vmCollectionView;
     private ICollectionView? _networkCollectionView;
-
 
     private TargetManagerView? _targetManagerView;
 
@@ -47,25 +51,94 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // Composition root: build the shared object graph once here instead of
+        // letting each view construct its own copies of these collaborators.
+        // Composition root: build the shared object graph once here.
+        var powerShell = new PowerShellExecutor();
+        var hyperVProvider = new HyperVProvider(powerShell);
+        var inventoryCollector = new RemoteInventoryCollector(powerShell);
+
         _inventoryCache = new InventoryCache();
+        _targetManager = new TargetManager();
+        _targetValidator = new TargetValidator(powerShell);
+
+        _collectionOrchestrator = new CollectionOrchestrator(
+            _targetValidator,
+            inventoryCollector,
+            _inventoryCache);
 
         ByteSizeConverter.CurrentUnit = SizeUnit.GB;
         GbUnitMenuItem.IsChecked = true;
 
         Loaded += MainWindow_Loaded;
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
     }
-    private void MainWindow_Loaded(object sender,RoutedEventArgs e)
+
+    // =========================================================
+    // KEYBOARD SHORTCUTS
+    // =========================================================
+
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case Key.F5:
+                RefreshMenuItem_Click(sender, e);
+                e.Handled = true;
+                break;
+
+            case Key.N when Keyboard.Modifiers == ModifierKeys.Control:
+                ConnectMenuItem_Click(sender, e);
+                e.Handled = true;
+                break;
+
+            case Key.E when Keyboard.Modifiers == ModifierKeys.Control:
+                ExportToExcelMenuItem_Click(sender, e);
+                e.Handled = true;
+                break;
+
+            case Key.F when Keyboard.Modifiers == ModifierKeys.Control:
+                VmSearchTextBox.Focus();
+                VmSearchTextBox.SelectAll();
+                e.Handled = true;
+                break;
+        }
+    }
+
+    private void VmSearchTextBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            VmSearchTextBox.Clear();
+            e.Handled = true;
+        }
+    }
+
+    private void ClearSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        VmSearchTextBox.Clear();
+        VmSearchTextBox.Focus();
+    }
+
+    // =========================================================
+    // TARGET MANAGER
+    // =========================================================
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         OpenTargetManager();
     }
+
     private void OpenTargetManager()
     {
-        var targetManagerView = new TargetManagerView(_inventoryCache);
+        var targetManagerView = new TargetManagerView(
+            _targetManager,
+            _targetValidator,
+            _collectionOrchestrator,
+            _inventoryCache);
 
         _targetManagerView = targetManagerView;
-
-        targetManagerView.CollectionCompleted +=
-            TargetManagerView_CollectionCompleted;
+        targetManagerView.CollectionCompleted += TargetManagerView_CollectionCompleted;
 
         var targetManagerWindow = new Window
         {
@@ -81,38 +154,84 @@ public partial class MainWindow : Window
 
         targetManagerWindow.ShowDialog();
     }
-    private void TargetManagerView_CollectionCompleted( object? sender,EventArgs e)
+
+    private void TargetManagerView_CollectionCompleted(object? sender, EventArgs e)
     {
         LoadCachedInventory();
     }
 
-    private void LoadCachedInventory()
+    private void ConnectMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        var snapshot = _inventoryCache.GetSnapshot();
-
-        LoadVirtualMachines(snapshot);
-        LoadProcessors(snapshot);
-        LoadMemories(snapshot);
-        LoadDisks(snapshot);
-        LoadNetworkAdapters(snapshot);
-        LoadNetworkVlans(snapshot);
-        LoadCheckpoints(snapshot);
-        LoadIntegrationServiceInfo(snapshot);
-        LoadStorageInfo(snapshot);
-        LoadVhds(snapshot);
-        LoadReplication(snapshot);
-        LoadDvds(snapshot);
-        LoadClusters(snapshot);
-        LoadHostInventory(snapshot);
-  
-
-        PopulateFilters();
-
-        UpdateSummary(snapshot);
+        OpenTargetManager();
     }
 
-    
-    private void LoadVirtualMachines( InventorySnapshot snapshot)
+    private void DisconnectSelectedMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        _targetManagerView?.DisconnectSelected();
+    }
+
+    private void DisconnectAllMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        _targetManagerView?.DisconnectAll();
+    }
+
+    // =========================================================
+    // INVENTORY LOADING
+    // =========================================================
+
+    private void LoadCachedInventory()
+    {
+        SetBusy(true, "Loading inventory...");
+
+        try
+        {
+            var snapshot = _inventoryCache.GetSnapshot();
+
+            LoadVirtualMachines(snapshot);
+            LoadCollection(_processors, snapshot.Processors, CpuDataGrid);
+            LoadCollection(_memories, snapshot.Memories, MemoryDataGrid);
+            LoadCollection(_disks, snapshot.Disks, DiskDataGrid);
+            LoadNetworkAdapters(snapshot);
+            LoadCollection(_networkVlans, snapshot.NetworkVlans, VlanDataGrid);
+            LoadCollection(_checkpoints, snapshot.Checkpoints, CheckpointDataGrid);
+            LoadCollection(_integrationServices, snapshot.IntegrationServices, IntegrationDataGrid);
+            LoadCollection(_vmStorage, snapshot.VmStorage, StorageDataGrid);
+            LoadCollection(_vhds, snapshot.Vhds, VhdDataGrid);
+            LoadCollection(_replications, snapshot.Replication, ReplicationDataGrid);
+            LoadCollection(_dvds, snapshot.Dvds, DvdDataGrid);
+            LoadCollection(_clusters, snapshot.Clusters, ClusterDataGrid);
+            LoadHostInventory(snapshot);
+
+            PopulateFilters();
+            UpdateSummary(snapshot);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    /// <summary>
+    /// Shared implementation for the tabs that just mirror a snapshot list
+    /// straight into a grid with no extra joining/filtering logic. Replaces
+    /// what used to be a dozen near-identical Load*() methods.
+    /// </summary>
+    private static void LoadCollection<T>(
+        ObservableCollection<T> target,
+        IEnumerable<T> source,
+        DataGrid grid)
+    {
+        target.Clear();
+
+        foreach (var item in source)
+        {
+            target.Add(item);
+        }
+
+        grid.ItemsSource = target;
+    }
+
+    private void LoadVirtualMachines(InventorySnapshot snapshot)
     {
         _virtualMachines.Clear();
 
@@ -121,37 +240,14 @@ public partial class MainWindow : Window
             _virtualMachines.Add(vm);
         }
 
-        _vmCollectionView =
-            CollectionViewSource.GetDefaultView(_virtualMachines);
-
+        _vmCollectionView = CollectionViewSource.GetDefaultView(_virtualMachines);
         _vmCollectionView.Filter = FilterVm;
 
         VmDataGrid.ItemsSource = _vmCollectionView;
 
         RefreshVmFilter();
     }
-    private void LoadProcessors( InventorySnapshot snapshot)
-    {
-        _processors.Clear();
 
-        foreach (var processor in snapshot.Processors)
-        {
-            _processors.Add(processor);
-        }
-
-        CpuDataGrid.ItemsSource = _processors;
-    }
-    private void LoadMemories( InventorySnapshot snapshot)
-    {
-        _memories.Clear();
-
-        foreach (var memory in snapshot.Memories)
-        {
-            _memories.Add(memory);
-        }
-
-        MemoryDataGrid.ItemsSource = _memories;
-    }
     private void LoadNetworkAdapters(InventorySnapshot snapshot)
     {
         _networkAdapters.Clear();
@@ -161,119 +257,12 @@ public partial class MainWindow : Window
             _networkAdapters.Add(adapter);
         }
 
-        _networkCollectionView =
-            CollectionViewSource.GetDefaultView(_networkAdapters);
-
+        _networkCollectionView = CollectionViewSource.GetDefaultView(_networkAdapters);
         _networkCollectionView.Filter = FilterNetwork;
 
-        NetworkDataGrid.ItemsSource =
-            _networkCollectionView;
+        NetworkDataGrid.ItemsSource = _networkCollectionView;
 
         RefreshNetworkFilter();
-    }
-    private void LoadNetworkVlans(InventorySnapshot snapshot)
-    {
-        _networkVlans.Clear();
-
-        foreach (var vlan in snapshot.NetworkVlans)
-        {
-            _networkVlans.Add(vlan);
-        }
-
-        VlanDataGrid.ItemsSource = _networkVlans;
-    }
-    private void LoadCheckpoints(InventorySnapshot snapshot)
-    {
-        _checkpoints.Clear();
-
-        foreach (var checkpoint in snapshot.Checkpoints)
-        {
-            _checkpoints.Add(checkpoint);
-        }
-
-        CheckpointDataGrid.ItemsSource = _checkpoints;
-    }
-    private void LoadIntegrationServiceInfo(InventorySnapshot snapshot)
-    {
-        _integrationServices.Clear();
-
-        foreach (var service in snapshot.IntegrationServices)
-        {
-            _integrationServices.Add(service);
-        }
-
-        IntegrationDataGrid.ItemsSource = _integrationServices;
-    }
-    private void LoadStorageInfo(InventorySnapshot snapshot)
-    {
-        _vmStorage.Clear();
-        foreach (var storage in snapshot.VmStorage)
-        {
-            _vmStorage.Add(storage);
-        }
-        StorageDataGrid.ItemsSource = _vmStorage;
-    }
-    private void LoadDisks(InventorySnapshot snapshot)
-    {
-        _disks.Clear();
-
-        foreach (var disk in snapshot.Disks)
-        {
-            _disks.Add(disk);
-        }
-
-        DiskDataGrid.ItemsSource = _disks;
-    }
-    private void LoadVhds(InventorySnapshot snapshot)
-    {
-        _vhds.Clear();
-        foreach (var vhd in snapshot.Vhds)
-        {
-            _vhds.Add(vhd);
-        }
-        VhdDataGrid.ItemsSource = _vhds;
-    }
-    private void LoadReplication(InventorySnapshot snapshot)
-    {
-        _replications.Clear();
-
-        foreach (var replication in snapshot.Replication)
-        {
-            _replications.Add(replication);
-        }
-
-        System.Diagnostics.Debug.WriteLine(
-            $"REPLICATION UI LOAD: snapshot={snapshot.Replication.Count}, collection={_replications.Count}");
-
-        ReplicationDataGrid.ItemsSource = _replications;
-    }
-    private void LoadDvds(InventorySnapshot snapshot)
-    {
-        _dvds.Clear();
-
-        foreach (var dvd in snapshot.Dvds)
-        {
-            _dvds.Add(dvd);
-        }
-
-        System.Diagnostics.Debug.WriteLine(
-            $"DVD UI LOAD: snapshot={snapshot.Dvds.Count}, collection={_dvds.Count}");
-
-        DvdDataGrid.ItemsSource = _dvds;
-    }
-    private void LoadClusters(InventorySnapshot snapshot)
-    {
-        _clusters.Clear();
-
-        foreach (var cluster in snapshot.Clusters)
-        {
-            _clusters.Add(cluster);
-        }
-
-        System.Diagnostics.Debug.WriteLine(
-            $"CLUSTER UI LOAD: snapshot={snapshot.Clusters.Count}, collection={_clusters.Count}");
-
-        ClusterDataGrid.ItemsSource = _clusters;
     }
 
     private void LoadHostInventory(InventorySnapshot snapshot)
@@ -282,116 +271,62 @@ public partial class MainWindow : Window
 
         foreach (var host in snapshot.Hosts)
         {
-            var storage = snapshot.HostStorage
-                .FirstOrDefault(x =>
-                    string.Equals(
-                        x.HostName,
-                        host.Name,
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    string.Equals(
-                        x.ComputerName,
-                        host.Name,
-                        StringComparison.OrdinalIgnoreCase));
+            var storage = snapshot.HostStorage.FirstOrDefault(x =>
+                string.Equals(x.HostName, host.Name, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(x.ComputerName, host.Name, StringComparison.OrdinalIgnoreCase));
 
-            var operatingSystem = snapshot.OperatingSystems
-                .FirstOrDefault(x =>
-                    string.Equals(
-                        x.ComputerName,
-                        host.Name,
-                        StringComparison.OrdinalIgnoreCase));
+            var operatingSystem = snapshot.OperatingSystems.FirstOrDefault(x =>
+                string.Equals(x.ComputerName, host.Name, StringComparison.OrdinalIgnoreCase));
 
-            var row = new HostInventoryRow
+            _hostInventoryRows.Add(new HostInventoryRow
             {
-                // Host
                 HostName = host.Name,
                 Fqdn = host.Fqdn,
                 ClusterName = host.ClusterName,
                 IsClusterNode = host.IsClusterNode,
                 IsConnected = host.IsConnected,
 
-                // Hyper-V
                 HyperVVersion = host.HyperVVersion,
                 LogicalProcessorCount = host.LogicalProcessorCount,
                 VirtualMachineCount = host.VirtualMachineCount,
 
-                // Memory
                 TotalMemoryBytes = host.TotalMemoryBytes,
                 UsedMemoryBytes = host.UsedMemoryBytes,
 
-                // Operating System
-                OperatingSystem = operatingSystem?.Caption
-                    ?? host.OperatingSystem,
-
-                OSVersion = operatingSystem?.Version
-                    ?? string.Empty,
-
-                OSBuildNumber = operatingSystem?.BuildNumber
-                    ?? string.Empty,
-
-                OSArchitecture = operatingSystem?.OSArchitecture
-                    ?? string.Empty,
-
+                OperatingSystem = operatingSystem?.Caption ?? host.OperatingSystem,
+                OSVersion = operatingSystem?.Version ?? string.Empty,
+                OSBuildNumber = operatingSystem?.BuildNumber ?? string.Empty,
+                OSArchitecture = operatingSystem?.OSArchitecture ?? string.Empty,
                 LastBootUpTime = operatingSystem?.LastBootUpTime,
 
-                // OS Memory
-                TotalVisibleMemorySizeKb =
-                    operatingSystem?.TotalVisibleMemorySizeKb ?? 0,
+                TotalVisibleMemorySizeKb = operatingSystem?.TotalVisibleMemorySizeKb ?? 0,
+                FreePhysicalMemoryKb = operatingSystem?.FreePhysicalMemoryKb ?? 0,
 
-                FreePhysicalMemoryKb =
-                    operatingSystem?.FreePhysicalMemoryKb ?? 0,
+                VirtualHardDiskPath = storage?.VirtualHardDiskPath ?? string.Empty,
+                VirtualMachinePath = storage?.VirtualMachinePath ?? string.Empty,
+                ParentSnapshotPath = storage?.ParentSnapshotPath ?? string.Empty,
 
-                // Hyper-V Storage
-                VirtualHardDiskPath =
-                    storage?.VirtualHardDiskPath ?? string.Empty,
-
-                VirtualMachinePath =
-                    storage?.VirtualMachinePath ?? string.Empty,
-
-                ParentSnapshotPath =
-                    storage?.ParentSnapshotPath ?? string.Empty,
-
-                // VM Migration
-                MaximumStorageMigrations =
-                    storage?.MaximumStorageMigrations ?? 0,
-
-                MaximumVirtualMachineMigrations =
-                    storage?.MaximumVirtualMachineMigrations ?? 0,
-
-                VirtualMachineMigrationEnabled =
-                    storage?.VirtualMachineMigrationEnabled ?? false,
-
+                MaximumStorageMigrations = storage?.MaximumStorageMigrations ?? 0,
+                MaximumVirtualMachineMigrations = storage?.MaximumVirtualMachineMigrations ?? 0,
+                VirtualMachineMigrationEnabled = storage?.VirtualMachineMigrationEnabled ?? false,
                 VirtualMachineMigrationAuthenticationType =
-                    storage?.VirtualMachineMigrationAuthenticationType
-                    ?? string.Empty,
-
+                    storage?.VirtualMachineMigrationAuthenticationType ?? string.Empty,
                 VirtualMachineMigrationPerformanceOption =
-                    storage?.VirtualMachineMigrationPerformanceOption
-                    ?? string.Empty,
+                    storage?.VirtualMachineMigrationPerformanceOption ?? string.Empty,
+                UseAnyNetworkForMigration = storage?.UseAnyNetworkForMigration ?? false,
 
-                UseAnyNetworkForMigration =
-                    storage?.UseAnyNetworkForMigration ?? false,
-
-                // Hyper-V Settings
-                EnableEnhancedSessionMode =
-                    storage?.EnableEnhancedSessionMode ?? false,
-
-                // Status
-                IsDeleted =
-                    storage?.IsDeleted ?? false
-            };
-
-            _hostInventoryRows.Add(row);
+                EnableEnhancedSessionMode = storage?.EnableEnhancedSessionMode ?? false,
+                IsDeleted = storage?.IsDeleted ?? false
+            });
         }
 
         HostDataGrid.ItemsSource = _hostInventoryRows;
-
-        System.Diagnostics.Debug.WriteLine(
-            $"HOST UI LOAD: snapshot={snapshot.Hosts.Count}, rows={_hostInventoryRows.Count}");
     }
 
+    // =========================================================
+    // FILTERING
+    // =========================================================
 
-    // Ui Functions
     private bool FilterVm(object obj)
     {
         if (obj is not HyperVVirtualMachine vm)
@@ -404,18 +339,10 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(search))
         {
             var matches =
-                vm.Name.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || vm.HostName.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || vm.VMId.ToString().Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || vm.ClusterName.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase);
+                vm.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                vm.HostName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                vm.VMId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                vm.ClusterName.Contains(search, StringComparison.OrdinalIgnoreCase);
 
             if (!matches)
             {
@@ -423,38 +350,17 @@ public partial class MainWindow : Window
             }
         }
 
-        var selectedHost =
-            HostFilterComboBox.SelectedItem as string;
-
-        if (!string.IsNullOrWhiteSpace(selectedHost) &&
-            selectedHost != "All" &&
-            !vm.HostName.Equals(
-                selectedHost,
-                StringComparison.OrdinalIgnoreCase))
+        if (!MatchesComboFilter(HostFilterComboBox, vm.HostName))
         {
             return false;
         }
 
-        var selectedState =
-            StateFilterComboBox.SelectedItem as string;
-
-        if (!string.IsNullOrWhiteSpace(selectedState) &&
-            selectedState != "All" &&
-            !vm.State.Equals(
-                selectedState,
-                StringComparison.OrdinalIgnoreCase))
+        if (!MatchesComboFilter(StateFilterComboBox, vm.State))
         {
             return false;
         }
 
-        var selectedCluster =
-            ClusterFilterComboBox.SelectedItem as string;
-
-        if (!string.IsNullOrWhiteSpace(selectedCluster) &&
-            selectedCluster != "All" &&
-            !vm.ClusterName.Equals(
-                selectedCluster,
-                StringComparison.OrdinalIgnoreCase))
+        if (!MatchesComboFilter(ClusterFilterComboBox, vm.ClusterName))
         {
             return false;
         }
@@ -474,27 +380,13 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(search))
         {
             var matches =
-                adapter.VmName.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || adapter.HostName.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || adapter.Name.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || adapter.SwitchName.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || adapter.MacAddress.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || adapter.IPv4AddressDisplay.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase)
-                || adapter.IPv6AddressDisplay.Contains(
-                    search,
-                    StringComparison.OrdinalIgnoreCase);
+                adapter.VmName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                adapter.HostName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                adapter.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                adapter.SwitchName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                adapter.MacAddress.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                adapter.IPv4AddressDisplay.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                adapter.IPv6AddressDisplay.Contains(search, StringComparison.OrdinalIgnoreCase);
 
             if (!matches)
             {
@@ -502,173 +394,164 @@ public partial class MainWindow : Window
             }
         }
 
-        var selectedHost =
-            HostFilterComboBox.SelectedItem as string;
+        return MatchesComboFilter(HostFilterComboBox, adapter.HostName);
+    }
 
-        if (!string.IsNullOrWhiteSpace(selectedHost) &&
-            selectedHost != "All" &&
-            !adapter.HostName.Equals(
-                selectedHost,
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
+    private static bool MatchesComboFilter(ComboBox comboBox, string value)
+    {
+        var selected = comboBox.SelectedItem as string;
 
-        return true;
+        return string.IsNullOrWhiteSpace(selected) ||
+               selected == "All" ||
+               value.Equals(selected, StringComparison.OrdinalIgnoreCase);
     }
 
     private void PopulateFilters()
     {
-        var hosts = _virtualMachines
-            .Select(vm => vm.HostName)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
+        SetComboBoxItems(HostFilterComboBox, _virtualMachines.Select(vm => vm.HostName));
+        SetComboBoxItems(StateFilterComboBox, _virtualMachines.Select(vm => vm.State));
+        SetComboBoxItems(ClusterFilterComboBox, _virtualMachines.Select(vm => vm.ClusterName));
+    }
+
+    private static void SetComboBoxItems(ComboBox comboBox, IEnumerable<string> values)
+    {
+        var distinctValues = values
+            .Where(v => !string.IsNullOrWhiteSpace(v))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name)
+            .OrderBy(v => v)
             .ToList();
 
-        HostFilterComboBox.ItemsSource =
-            new[] { "All" }.Concat(hosts).ToList();
-
-        var states = _virtualMachines
-            .Select(vm => vm.State)
-            .Where(state => !string.IsNullOrWhiteSpace(state))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(state => state)
-            .ToList();
-
-        StateFilterComboBox.ItemsSource =
-            new[] { "All" }.Concat(states).ToList();
-
-        var clusters = _virtualMachines
-            .Select(vm => vm.ClusterName)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(name => name)
-            .ToList();
-
-        ClusterFilterComboBox.ItemsSource =
-            new[] { "All" }.Concat(clusters).ToList();
-
-        HostFilterComboBox.SelectedIndex = 0;
-        StateFilterComboBox.SelectedIndex = 0;
-        ClusterFilterComboBox.SelectedIndex = 0;
+        comboBox.ItemsSource = new[] { "All" }.Concat(distinctValues).ToList();
+        comboBox.SelectedIndex = 0;
     }
 
-    private void VmSearchTextBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    private void VmSearchTextBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        VmSearchPlaceholder.Visibility =
-            string.IsNullOrWhiteSpace(VmSearchTextBox.Text)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+        var hasText = !string.IsNullOrWhiteSpace(VmSearchTextBox.Text);
+
+        VmSearchPlaceholder.Visibility = hasText ? Visibility.Collapsed : Visibility.Visible;
+        ClearSearchButton.Visibility = hasText ? Visibility.Visible : Visibility.Collapsed;
 
         RefreshVmFilter();
     }
 
-    private void HostFilterComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        RefreshVmFilter();
-    }
+    private void HostFilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => RefreshVmFilter();
 
-    private void StateFilterComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        RefreshVmFilter();
-    }
+    private void StateFilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => RefreshVmFilter();
 
-    private void ClusterFilterComboBox_SelectionChanged( object sender,System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        RefreshVmFilter();
-    }
+    private void ClusterFilterComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => RefreshVmFilter();
 
     private void RefreshVmFilter()
     {
         _vmCollectionView?.Refresh();
         _networkCollectionView?.Refresh();
 
-        if (_vmCollectionView != null)
-        {
-            VmSummaryCountText.Text =
-                $"Showing {_vmCollectionView.Cast<HyperVVirtualMachine>().Count()} " +
-                $"of {_virtualMachines.Count} VMs";
-        }
-
-        if (_networkCollectionView != null)
-        {
-            NetworkSummaryCountText.Text =
-                $"Showing {_networkCollectionView.Cast<VmNetworkAdapter>().Count()} " +
-                $"of {_networkAdapters.Count} network adapters";
-        }
+        UpdateVisibleCounts();
     }
 
     private void RefreshNetworkFilter()
     {
         _networkCollectionView?.Refresh();
+        UpdateVisibleCounts();
+    }
+
+    private void UpdateVisibleCounts()
+    {
+        if (_vmCollectionView != null)
+        {
+            var visible = _vmCollectionView.Cast<object>().Count();
+            VmSummaryCountText.Text = $"Showing {visible} of {_virtualMachines.Count} VMs";
+            RowCountText.Text = $"{visible} rows";
+        }
 
         if (_networkCollectionView != null)
         {
-            NetworkSummaryCountText.Text =
-                $"Showing {_networkCollectionView.Cast<VmNetworkAdapter>().Count()} " +
-                $"of {_networkAdapters.Count} network adapters";
+            var visible = _networkCollectionView.Cast<object>().Count();
+            NetworkSummaryCountText.Text = $"Showing {visible} of {_networkAdapters.Count} network adapters";
         }
     }
+
+    // =========================================================
+    // SUMMARY
+    // =========================================================
 
     private void UpdateSummary(InventorySnapshot snapshot)
     {
         var virtualMachines = snapshot.VirtualMachines;
 
         var totalVms = virtualMachines.Count;
+        var runningVms = virtualMachines.Count(vm => vm.State.Equals("Running", StringComparison.OrdinalIgnoreCase));
+        var poweredOffVms = virtualMachines.Count(vm => vm.State.Equals("Off", StringComparison.OrdinalIgnoreCase));
+        var totalCpus = virtualMachines.Sum(vm => vm.ProcessorCount);
+        var assignedMemoryBytes = virtualMachines.Sum(vm => vm.MemoryAssigned);
 
-        var runningVms = virtualMachines.Count(vm =>
-            vm.State.Equals(
-                "Running",
-                StringComparison.OrdinalIgnoreCase));
-
-        var poweredOffVms = virtualMachines.Count(vm =>
-            vm.State.Equals(
-                "Off",
-                StringComparison.OrdinalIgnoreCase));
-
-        var totalCpus =
-            virtualMachines.Sum(vm => vm.ProcessorCount);
-
-        var assignedMemoryBytes = virtualMachines.Sum( vm => vm.MemoryAssigned);
-
-        AssignedMemoryText.Text =ByteSizeConverter.FormatBytes(assignedMemoryBytes);
-
+        AssignedMemoryText.Text = ByteSizeConverter.FormatBytes(assignedMemoryBytes);
         TotalVmText.Text = totalVms.ToString();
         RunningVmText.Text = runningVms.ToString();
         PoweredOffVmText.Text = poweredOffVms.ToString();
         TotalCpuText.Text = totalCpus.ToString();
-     
-
         NodesQueriedText.Text = $"{snapshot.HostCount}/{snapshot.HostCount}";
-
-        CheckpointText.Text =snapshot.CheckpointCount.ToString();
-
+        CheckpointText.Text = snapshot.CheckpointCount.ToString();
         LastUpdatedText.Text = $"Last updated: {snapshot.CreatedAt:MM/dd/yyyy HH:mm:ss}";
-
-        StatusText.Text =$"Inventory loaded — {snapshot.VirtualMachineCount} VM(s)";
-
-        RowCountText.Text =$"{totalVms} rows";
+        StatusText.Text = $"Inventory loaded — {snapshot.VirtualMachineCount} VM(s)";
+        RowCountText.Text = $"{totalVms} rows";
     }
 
-    private void DisconnectSelectedMenuItem_Click(object sender, RoutedEventArgs e)
+    // =========================================================
+    // TOOLBAR ACTIONS
+    // =========================================================
+
+    private void RefreshMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        _targetManagerView?.DisconnectSelected();
+        if (_inventoryCache.GetSnapshot().VirtualMachines.Count == 0)
+        {
+            ShowInfo(
+                "There's no inventory loaded yet. Use Connect to add targets and run a collection first.",
+                "Nothing to Refresh");
+            return;
+        }
+
+        LoadCachedInventory();
+        StatusText.Text = "Inventory view refreshed from the last collection.";
     }
 
-    private void DisconnectAllMenuItem_Click(object sender, RoutedEventArgs e)
+    private void ExportToExcelMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        _targetManagerView?.DisconnectAll();
+        if (_virtualMachines.Count == 0)
+        {
+            ShowInfo("There's no inventory to export yet. Run a collection first.", "Export to Excel");
+            return;
+        }
+
+        // NOTE: wire this to HyperVToolsX.Export once its public API is available here —
+        // e.g. an IInventoryExporter.ExportAsync(_inventoryCache.GetSnapshot(), path).
+        // Left as an explicit TODO rather than a silent no-op so it's obvious in the UI
+        // that export isn't wired up yet, instead of a menu item that does nothing.
+        ShowInfo(
+            "Excel export isn't wired up yet in this build.\n\n" +
+            "This should call into HyperVToolsX.Export with the current snapshot once " +
+            "that project's exporter interface is available here.",
+            "Export to Excel");
     }
 
-    private void ConnectMenuItem_Click(object sender,RoutedEventArgs e)
+    private void ExitMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        OpenTargetManager();
+        Close();
     }
 
-    private void SizeUnitMenuItem_Click(object sender,RoutedEventArgs e)
+    private void AboutMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not System.Windows.Controls.MenuItem menuItem)
+        var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+
+        ShowInfo(
+            $"HyperVToolsX\nVersion {version}\n\n" +
+            "A Hyper-V inventory and documentation tool.",
+            "About HyperVToolsX");
+    }
+
+    private void SizeUnitMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem menuItem)
         {
             return;
         }
@@ -686,26 +569,16 @@ public partial class MainWindow : Window
 
         ByteSizeConverter.CurrentUnit = selectedUnit;
 
-        BytesUnitMenuItem.IsChecked =
-            selectedUnit == SizeUnit.Bytes;
-
-        KbUnitMenuItem.IsChecked =
-            selectedUnit == SizeUnit.KB;
-
-        MbUnitMenuItem.IsChecked =
-            selectedUnit == SizeUnit.MB;
-
-        GbUnitMenuItem.IsChecked =
-            selectedUnit == SizeUnit.GB;
-
-        TbUnitMenuItem.IsChecked =
-            selectedUnit == SizeUnit.TB;
-
-        PbUnitMenuItem.IsChecked =
-            selectedUnit == SizeUnit.PB;
+        BytesUnitMenuItem.IsChecked = selectedUnit == SizeUnit.Bytes;
+        KbUnitMenuItem.IsChecked = selectedUnit == SizeUnit.KB;
+        MbUnitMenuItem.IsChecked = selectedUnit == SizeUnit.MB;
+        GbUnitMenuItem.IsChecked = selectedUnit == SizeUnit.GB;
+        TbUnitMenuItem.IsChecked = selectedUnit == SizeUnit.TB;
+        PbUnitMenuItem.IsChecked = selectedUnit == SizeUnit.PB;
 
         RefreshSizeDisplays();
     }
+
     private void RefreshSizeDisplays()
     {
         VmDataGrid.Items.Refresh();
@@ -720,6 +593,25 @@ public partial class MainWindow : Window
         UpdateSummary(_inventoryCache.GetSnapshot());
     }
 
+    // =========================================================
+    // BUSY STATE
+    // =========================================================
 
+    private void SetBusy(bool isBusy, string? message = null)
+    {
+        BusyIndicator.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        Mouse.OverrideCursor = isBusy ? Cursors.Wait : null;
 
+        if (message != null)
+        {
+            StatusText.Text = message;
+        }
+    }
+
+    // =========================================================
+    // MESSAGE HELPERS
+    // =========================================================
+
+    private void ShowInfo(string message, string title) =>
+        MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
 }

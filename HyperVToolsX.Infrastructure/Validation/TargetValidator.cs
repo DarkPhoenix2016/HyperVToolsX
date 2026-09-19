@@ -1,43 +1,94 @@
 ﻿using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Text.Json;
 using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Interfaces;
 using HyperVToolsX.Core.Models;
-using HyperVToolsX.Infrastructure.HyperV;
+using HyperVToolsX.Infrastructure.PowerShellEngine;
 
 namespace HyperVToolsX.Infrastructure.Validation;
 
 public class TargetValidator : ITargetValidator
 {
-    private readonly HyperVProvider _hyperVProvider;
+    private readonly PowerShellExecutor _powerShell;
 
-    public TargetValidator(HyperVProvider hyperVProvider)
+    public TargetValidator(PowerShellExecutor powerShell)
     {
-        _hyperVProvider = hyperVProvider;
+        _powerShell =
+            powerShell
+            ?? throw new ArgumentNullException(
+                nameof(powerShell));
     }
 
     public async Task<TargetValidationResult> ValidateAsync(
         HyperVTarget target,
         CancellationToken cancellationToken = default)
     {
-        var result = new TargetValidationResult
+        if (target == null)
         {
-            TargetName = target.Name,
-            StartedAt = DateTime.Now,
-            Status = TargetValidationStatus.Pending
-        };
+            throw new ArgumentNullException(nameof(target));
+        }
+
+        var targetName =
+            target.Name?.Trim() ?? string.Empty;
+
+        var result =
+            new TargetValidationResult
+            {
+                TargetName = targetName,
+                StartedAt = DateTime.Now,
+                Status =
+                    TargetValidationStatus.Pending,
+                IsCluster = false,
+                ClusterName = null,
+                ErrorMessage = null
+            };
+
+        if (string.IsNullOrWhiteSpace(targetName))
+        {
+            result.Status =
+                TargetValidationStatus.NameResolutionFailed;
+
+            result.ErrorMessage =
+                "Target name or address is required.";
+
+            return Complete(result);
+        }
 
         try
         {
-            // ---------------------------------------------------------
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // =========================================================
             // 1. DNS / NAME RESOLUTION
-            // ---------------------------------------------------------
+            // =========================================================
 
-            result.Status = TargetValidationStatus.ResolvingName;
+            result.Status =
+                TargetValidationStatus.ResolvingName;
 
-            var addresses = await Dns.GetHostAddressesAsync(
-                target.Name,
-                cancellationToken);
+            IPAddress[] addresses;
+
+            try
+            {
+                addresses =
+                    await Dns.GetHostAddressesAsync(
+                        targetName,
+                        cancellationToken);
+            }
+            catch (SocketException ex)
+            {
+                result.Status =
+                    TargetValidationStatus.NameResolutionFailed;
+
+                result.ErrorMessage =
+                    $"Unable to resolve '{targetName}'. " +
+                    $"DNS error: {ex.Message}";
+
+                return Complete(result);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (addresses.Length == 0)
             {
@@ -45,33 +96,59 @@ public class TargetValidator : ITargetValidator
                     TargetValidationStatus.NameResolutionFailed;
 
                 result.ErrorMessage =
-                    $"Unable to resolve '{target.Name}'.";
+                    $"Unable to resolve '{targetName}'.";
 
                 return Complete(result);
             }
 
             result.NameResolved = true;
 
+            // Prefer IPv4.
+            var resolvedAddress =
+                addresses.FirstOrDefault(
+                    address =>
+                        address.AddressFamily ==
+                        AddressFamily.InterNetwork);
+
+            resolvedAddress ??=
+                addresses.FirstOrDefault();
+
             result.ResolvedAddress =
-                addresses
-                    .FirstOrDefault(a =>
-                        a.AddressFamily ==
-                        System.Net.Sockets.AddressFamily.InterNetwork)
-                    ?.ToString()
-                ?? addresses[0].ToString();
+                resolvedAddress?.ToString();
 
-
-            // ---------------------------------------------------------
+            // =========================================================
             // 2. PING
-            // ---------------------------------------------------------
+            // =========================================================
 
-            result.Status = TargetValidationStatus.Pinging;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            result.Status =
+                TargetValidationStatus.Pinging;
 
             using var ping = new Ping();
 
-            var pingReply = await ping.SendPingAsync(
-                target.Name,
-                3000);
+            PingReply pingReply;
+
+            try
+            {
+                pingReply =
+                    await ping.SendPingAsync(
+                        targetName,
+                        3000);
+            }
+            catch (PingException ex)
+            {
+                result.Status =
+                    TargetValidationStatus.PingFailed;
+
+                result.ErrorMessage =
+                    $"Ping failed for '{targetName}'. " +
+                    $"Error: {ex.Message}";
+
+                return Complete(result);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (pingReply.Status != IPStatus.Success)
             {
@@ -79,7 +156,7 @@ public class TargetValidator : ITargetValidator
                     TargetValidationStatus.PingFailed;
 
                 result.ErrorMessage =
-                    $"Ping failed for '{target.Name}'. " +
+                    $"Ping failed for '{targetName}'. " +
                     $"Status: {pingReply.Status}";
 
                 return Complete(result);
@@ -87,65 +164,312 @@ public class TargetValidator : ITargetValidator
 
             result.PingSucceeded = true;
 
-
-            // ---------------------------------------------------------
+            // =========================================================
             // 3. HYPER-V CONNECTIVITY
-            // ---------------------------------------------------------
+            //
+            // IMPORTANT:
+            // Do NOT use HyperVProvider here.
+            //
+            // The Hyper-V cmdlets must execute inside Windows
+            // PowerShell 5.1 on the local machine and then remotely
+            // on the target.
+            // =========================================================
 
-            result.Status = TargetValidationStatus.Connecting;
+            cancellationToken.ThrowIfCancellationRequested();
 
-            var host = await _hyperVProvider.GetHostAsync(
-                target.Name,
-                cancellationToken);
+            result.Status =
+                TargetValidationStatus.Connecting;
 
-            if (host == null)
+            RemoteValidationResult? remoteResult;
+
+            try
+            {
+                remoteResult =
+                    await ValidateRemoteHyperVAsync(
+                        targetName,
+                        cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 result.Status =
                     TargetValidationStatus.ConnectionFailed;
 
                 result.ErrorMessage =
-                    $"Unable to connect to Hyper-V host '{target.Name}'.";
+                    $"Unable to connect to Hyper-V host " +
+                    $"'{targetName}'. Error: {ex.Message}";
+
+                return Complete(result);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (remoteResult == null)
+            {
+                result.Status =
+                    TargetValidationStatus.ConnectionFailed;
+
+                result.ErrorMessage =
+                    $"Hyper-V validation returned no data " +
+                    $"from '{targetName}'.";
+
+                return Complete(result);
+            }
+
+            if (!remoteResult.Success)
+            {
+                result.Status =
+                    TargetValidationStatus.ConnectionFailed;
+
+                result.ErrorMessage =
+                    string.IsNullOrWhiteSpace(
+                        remoteResult.ErrorMessage)
+                        ? $"Unable to connect to Hyper-V host '{targetName}'."
+                        : remoteResult.ErrorMessage;
 
                 return Complete(result);
             }
 
             result.HyperVConnectionSucceeded = true;
 
-
-            // ---------------------------------------------------------
+            // =========================================================
             // 4. TARGET IDENTIFICATION
-            // ---------------------------------------------------------
+            // =========================================================
 
-            // For the first implementation, a successful
-            // Get-VMHost connection identifies this as a
-            // standalone Hyper-V host.
-            //
-            // Cluster detection will be added in the next stage.
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (remoteResult.IsCluster)
+            {
+                result.IsCluster = true;
+
+                result.ClusterName =
+                    remoteResult.ClusterName?.Trim();
+
+                result.Status =
+                    TargetValidationStatus.ClusterReady;
+
+                result.ErrorMessage = null;
+
+                target.Type =
+                    TargetType.Cluster;
+
+                target.Address =
+                    result.ResolvedAddress
+                    ?? target.Address;
+
+                return Complete(result);
+            }
+
+            // =========================================================
+            // 5. STANDALONE HOST
+            // =========================================================
 
             result.IsCluster = false;
+            result.ClusterName = null;
 
-            result.Status = TargetValidationStatus.Ready;
+            result.Status =
+                TargetValidationStatus.Ready;
+
+            result.ErrorMessage = null;
+
+            target.Type =
+                TargetType.StandaloneHost;
+
+            target.Address =
+                result.ResolvedAddress
+                ?? target.Address;
 
             return Complete(result);
         }
         catch (OperationCanceledException)
         {
-            result.Status = TargetValidationStatus.Failed;
-            result.ErrorMessage = "Validation cancelled.";
+            result.Status =
+                TargetValidationStatus.Failed;
+
+            result.ErrorMessage =
+                "Validation cancelled.";
 
             return Complete(result);
         }
         catch (Exception ex)
         {
-            result.Status = DetermineFailureStage(result);
-            result.ErrorMessage = ex.Message;
+            result.Status =
+                DetermineFailureStage(result);
+
+            result.ErrorMessage =
+                ex.Message;
 
             return Complete(result);
         }
     }
 
-    private static TargetValidationStatus DetermineFailureStage(
-        TargetValidationResult result)
+    private async Task<RemoteValidationResult?>
+        ValidateRemoteHyperVAsync(
+            string computerName,
+            CancellationToken cancellationToken)
+    {
+        var escapedComputerName =
+            computerName.Replace(
+                "'",
+                "''",
+                StringComparison.Ordinal);
+
+        var remoteScript = """
+$ErrorActionPreference = 'Stop'
+
+$result = [ordered]@{
+    Success       = $false
+    ComputerName  = $env:COMPUTERNAME
+    HostName      = ''
+    IsCluster     = $false
+    ClusterName   = ''
+    ErrorMessage  = ''
+}
+
+try {
+    Import-Module Hyper-V -ErrorAction Stop
+
+    $vmHost = Get-VMHost -ErrorAction Stop
+
+    if ($null -eq $vmHost) {
+        throw 'Get-VMHost returned no Hyper-V host.'
+    }
+
+    $result.HostName =
+        if ($null -ne $vmHost.ComputerName) {
+            [string]$vmHost.ComputerName
+        }
+        else {
+            [string]$env:COMPUTERNAME
+        }
+
+    try {
+        Import-Module FailoverClusters -ErrorAction Stop
+
+        $cluster =
+            Get-Cluster -ErrorAction Stop
+
+        if ($null -ne $cluster) {
+            $result.IsCluster = $true
+
+            $result.ClusterName =
+                if ($null -ne $cluster.Name) {
+                    [string]$cluster.Name
+                }
+                else {
+                    ''
+                }
+        }
+    }
+    catch {
+        # No Failover Cluster is normal for a standalone Hyper-V host.
+        $result.IsCluster = $false
+        $result.ClusterName = ''
+    }
+
+    $result.Success = $true
+}
+catch {
+    $result.Success = $false
+    $result.ErrorMessage = $_.Exception.Message
+}
+
+$result |
+    ConvertTo-Json -Compress -Depth 5
+""";
+
+        var localComputerName = Environment.MachineName;
+
+        var isLocalTarget =
+            computerName.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || computerName.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+            || computerName.Equals("::1", StringComparison.OrdinalIgnoreCase)
+            || computerName.Equals(localComputerName, StringComparison.OrdinalIgnoreCase);
+
+        string command;
+
+        if (isLocalTarget)
+        {
+            command = remoteScript;
+        }
+        else
+        { 
+
+            command = $"""
+                $ErrorActionPreference = 'Stop'
+                $remoteScript = @'
+                {remoteScript}
+                '@
+                Invoke-Command -ComputerName '{escapedComputerName}' -ConfigurationName 'Microsoft.PowerShell' -ScriptBlock ([scriptblock]::Create($remoteScript))
+                """;
+        }
+
+        var json =
+            await _powerShell.ExecuteWindowsPowerShellAsync(
+                command,
+                cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            throw new InvalidOperationException(
+                $"Remote validation returned no data " +
+                $"from '{computerName}'.");
+        }
+
+        // Invoke-Command can return more than one serialized
+        // output object. Find the JSON object that contains
+        // the validation result.
+        var jsonLine =
+            json
+                .Split(
+                    new[]
+                    {
+                        Environment.NewLine,
+                        "\r",
+                        "\n"
+                    },
+                    StringSplitOptions.RemoveEmptyEntries)
+                .LastOrDefault(
+                    line =>
+                        line.TrimStart()
+                            .StartsWith(
+                                "{",
+                                StringComparison.Ordinal));
+
+        if (string.IsNullOrWhiteSpace(jsonLine))
+        {
+            throw new InvalidOperationException(
+                $"Unable to parse Hyper-V validation response " +
+                $"from '{computerName}'. " +
+                $"PowerShell output: {json}");
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<RemoteValidationResult>(
+                jsonLine,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Invalid Hyper-V validation response " +
+                $"from '{computerName}': {ex.Message}",
+                ex);
+        }
+    }
+
+    private static TargetValidationStatus
+        DetermineFailureStage(
+            TargetValidationResult result)
     {
         if (!result.NameResolved)
         {
@@ -169,6 +493,26 @@ public class TargetValidator : ITargetValidator
         TargetValidationResult result)
     {
         result.CompletedAt = DateTime.Now;
+
         return result;
+    }
+
+    private sealed class RemoteValidationResult
+    {
+        public bool Success { get; set; }
+
+        public string ComputerName { get; set; } =
+            string.Empty;
+
+        public string HostName { get; set; } =
+            string.Empty;
+
+        public bool IsCluster { get; set; }
+
+        public string ClusterName { get; set; } =
+            string.Empty;
+
+        public string ErrorMessage { get; set; } =
+            string.Empty;
     }
 }
