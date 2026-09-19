@@ -1,6 +1,5 @@
 ﻿using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Models;
-using HyperVToolsX.Infrastructure.HyperV;
 using HyperVToolsX.Infrastructure.PowerShellEngine;
 using HyperVToolsX.Infrastructure.Validation;
 using Xunit;
@@ -14,9 +13,7 @@ public class TargetValidatorTests
     {
         var executor = new PowerShellExecutor();
 
-        var provider = new HyperVProvider(executor);
-
-        var validator = new TargetValidator(provider);
+        var validator = new TargetValidator(executor);
 
         var target = new HyperVTarget
         {

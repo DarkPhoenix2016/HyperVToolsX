@@ -2,18 +2,21 @@
 using System.Text.Json.Serialization;
 using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Core.Interfaces;
+using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Core.Models;
-using HyperVToolsX.Infrastructure.PowerShellEngine;
+using HyperVToolsX.Infrastructure.Remoting;
 
 namespace HyperVToolsX.Infrastructure.Collection;
 
 public class RemoteInventoryCollector : IInventoryCollector
 {
-    private readonly PowerShellExecutor _powerShell;
+    private readonly RemoteScriptRunner _runner;
+    private readonly ILiveLog _log;
 
-    public RemoteInventoryCollector(PowerShellExecutor powerShell)
+    public RemoteInventoryCollector(RemoteScriptRunner runner, ILiveLog? log = null)
     {
-        _powerShell = powerShell;
+        _runner = runner ?? throw new ArgumentNullException(nameof(runner));
+        _log = log ?? NullLiveLog.Instance;
     }
 
     /// <summary>
@@ -61,9 +64,15 @@ public class RemoteInventoryCollector : IInventoryCollector
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var computerName = string.IsNullOrWhiteSpace(target.Address)
-            ? target.Name
-            : target.Address;
+        // Prefer the name the user typed over the validator's resolved IP:
+        // WinRM Kerberos/Negotiate needs a hostname, not an address.
+        var computerName =
+            !string.IsNullOrWhiteSpace(target.Name)
+            && !RemoteConnectionOptions.RequiresExplicitCredentials(target.Name)
+                ? target.Name
+                : string.IsNullOrWhiteSpace(target.Address)
+                    ? target.Name
+                    : target.Address;
 
         if (string.IsNullOrWhiteSpace(computerName))
         {
@@ -72,8 +81,11 @@ public class RemoteInventoryCollector : IInventoryCollector
                 nameof(target));
         }
 
+        _log.Step("Collection", $"Collecting inventory via {computerName}", target.Name);
+
         var package = await CollectRemotePackageAsync(
             computerName,
+            target.Name,
             cancellationToken);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -86,9 +98,17 @@ public class RemoteInventoryCollector : IInventoryCollector
                     : package.ErrorMessage);
         }
 
+        _log.Step("Collection", "Mapping remote package to inventory model", target.Name);
+
         RemoteInventoryMapper.MapToTarget(
             target,
             package);
+
+        _log.Info(
+            "Collection",
+            $"Mapped {target.Hosts.Count} host(s), {target.VirtualMachines.Count} VM(s), " +
+            $"{target.NetworkAdapters.Count} NIC(s), {target.Processors.Count} CPU row(s)",
+            target.Name);
 
         var primaryHost =
             target.Hosts.FirstOrDefault();
@@ -185,47 +205,19 @@ public class RemoteInventoryCollector : IInventoryCollector
 
     private async Task<RemoteInventoryPackage> CollectRemotePackageAsync(
         string computerName,
+        string logTarget,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var script = BuildCollectionScript();
 
-        var escapedComputerName =
-            computerName.Replace(
-                "'",
-                "''",
-                StringComparison.Ordinal);
-
-        var localComputerName = Environment.MachineName;
-
-        var isLocalTarget =
-            computerName.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-            || computerName.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
-            || computerName.Equals("::1", StringComparison.OrdinalIgnoreCase)
-            || computerName.Equals(localComputerName, StringComparison.OrdinalIgnoreCase);
-
-        string remoteCommand;
-
-        if (isLocalTarget)
-        {
-            remoteCommand = script;
-        }
-        else
-        {
-
-            remoteCommand = $"""
-                $ErrorActionPreference = 'Stop'
-                $remoteScript = @'
-                {script}
-                '@
-                Invoke-Command -ComputerName '{escapedComputerName}' -ConfigurationName 'Microsoft.PowerShell' -ScriptBlock ([scriptblock]::Create($remoteScript))
-                """;
-        }
+        _log.Step("Collection", "Running collection script (hosts, VMs, storage, network, cluster)", logTarget);
 
         var json =
-            await _powerShell.ExecuteWindowsPowerShellAsync(
-                remoteCommand,
+            await _runner.RunAsync(
+                computerName,
+                script,
                 cancellationToken);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -236,7 +228,36 @@ public class RemoteInventoryCollector : IInventoryCollector
                 $"Remote inventory returned no data from '{computerName}'.");
         }
 
-        var package =
+        // Hyper-V cmdlets can emit WARNING/verbose text ahead of (or after) the
+        // JSON. Keep only the outermost {...} so that noise can't break parsing.
+        var jsonStart = json.IndexOf('{');
+        var jsonEnd = json.LastIndexOf('}');
+
+        if (jsonStart < 0 || jsonEnd < jsonStart)
+        {
+            _log.Error("Collection", $"Output contained no JSON. First 300 chars: {Preview(json)}", logTarget);
+
+            throw new InvalidOperationException(
+                $"Remote inventory from '{computerName}' was not JSON: {Preview(json)}");
+        }
+
+        if (jsonStart > 0 || jsonEnd < json.Length - 1)
+        {
+            _log.Warn(
+                "Collection",
+                $"Ignored non-JSON output around the payload: '{Preview(json[..jsonStart])}'",
+                logTarget);
+
+            json = json[jsonStart..(jsonEnd + 1)];
+        }
+
+        _log.Step("Collection", $"Received {json.Length:N0} chars of JSON; deserializing", logTarget);
+
+        RemoteInventoryPackage? package;
+
+        try
+        {
+            package =
             JsonSerializer.Deserialize<RemoteInventoryPackage>(
                 json,
                 new JsonSerializerOptions
@@ -244,6 +265,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                     PropertyNameCaseInsensitive = true,
                     Converters = { new TimeSpanJsonConverter() }
                 });
+        }
+        catch (JsonException ex)
+        {
+            _log.Error("Collection", $"JSON deserialization failed: {ex.Message}", logTarget);
+            throw;
+        }
 
         if (package == null)
         {
@@ -254,6 +281,12 @@ public class RemoteInventoryCollector : IInventoryCollector
         package.ComputerName = computerName;
 
         return package;
+    }
+
+    private static string Preview(string value)
+    {
+        var flat = value.Replace((char)13, ' ').Replace((char)10, ' ').Trim();
+        return flat.Length <= 300 ? flat : flat[..300] + "...";
     }
 
     private static string BuildCollectionScript()
@@ -501,7 +534,7 @@ public class RemoteInventoryCollector : IInventoryCollector
                             BatteryPassthroughEnabled           = ToBool $_.BatteryPassthroughEnabled
                             Generation                          = ToInt $_.Generation
                             IsClustered                         = ToBool $_.IsClustered
-                            BootTime                            = if ($null -ne $_.Uptime -and $_.Uptime -gt [TimeSpan]::Zero) { (Get-Date) - $_.Uptime } else { $null }
+                            BootTime                            = if ($null -ne $_.Uptime -and $_.Uptime -gt [TimeSpan]::Zero) { ToIsoDate ((Get-Date) - $_.Uptime) } else { $null }
                         }
                     }
                 )

@@ -3,11 +3,13 @@ using HyperVToolsX.App.Views;
 using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Interfaces;
+using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Core.Models;
 using HyperVToolsX.Core.Models.Details;
 using HyperVToolsX.Infrastructure.Collection;
 using HyperVToolsX.Infrastructure.HyperV;
 using HyperVToolsX.Infrastructure.PowerShellEngine;
+using HyperVToolsX.Infrastructure.Remoting;
 using HyperVToolsX.Infrastructure.Validation;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -45,6 +47,9 @@ public partial class MainWindow : Window
     private ICollectionView? _vmCollectionView;
     private ICollectionView? _networkCollectionView;
 
+    private readonly RemoteConnectionOptions _connectionOptions;
+    private readonly LiveLog _liveLog;
+
     private TargetManagerView? _targetManagerView;
 
     public MainWindow()
@@ -54,18 +59,22 @@ public partial class MainWindow : Window
         // Composition root: build the shared object graph once here instead of
         // letting each view construct its own copies of these collaborators.
         // Composition root: build the shared object graph once here.
-        var powerShell = new PowerShellExecutor();
+        _liveLog = new LiveLog();
+        var powerShell = new PowerShellExecutor(_liveLog);
         var hyperVProvider = new HyperVProvider(powerShell);
-        var inventoryCollector = new RemoteInventoryCollector(powerShell);
+        _connectionOptions = new RemoteConnectionOptions();
+        var remoteRunner = new RemoteScriptRunner(powerShell, _connectionOptions, log: _liveLog);
+        var inventoryCollector = new RemoteInventoryCollector(remoteRunner, _liveLog);
 
         _inventoryCache = new InventoryCache();
         _targetManager = new TargetManager();
-        _targetValidator = new TargetValidator(powerShell);
+        _targetValidator = new TargetValidator(remoteRunner, _liveLog);
 
         _collectionOrchestrator = new CollectionOrchestrator(
             _targetValidator,
             inventoryCollector,
-            _inventoryCache);
+            _inventoryCache,
+            _liveLog);
 
         ByteSizeConverter.CurrentUnit = SizeUnit.GB;
         GbUnitMenuItem.IsChecked = true;
@@ -135,10 +144,11 @@ public partial class MainWindow : Window
             _targetManager,
             _targetValidator,
             _collectionOrchestrator,
-            _inventoryCache);
+            _inventoryCache,
+            _connectionOptions,
+            _liveLog);
 
         _targetManagerView = targetManagerView;
-        targetManagerView.CollectionCompleted += TargetManagerView_CollectionCompleted;
 
         var targetManagerWindow = new Window
         {
@@ -153,11 +163,13 @@ public partial class MainWindow : Window
         };
 
         targetManagerWindow.ShowDialog();
-    }
 
-    private void TargetManagerView_CollectionCompleted(object? sender, EventArgs e)
-    {
-        LoadCachedInventory();
+        // Closing the Target Manager after a successful collection loads the
+        // collected inventory into the main window.
+        if (targetManagerView.HasCollectedInventory)
+        {
+            LoadCachedInventory();
+        }
     }
 
     private void ConnectMenuItem_Click(object sender, RoutedEventArgs e)

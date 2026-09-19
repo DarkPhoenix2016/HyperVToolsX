@@ -138,8 +138,6 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="220"/>
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Orientation="Horizontal">
@@ -163,24 +161,12 @@
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
 
-                                    <TextBlock Grid.Column="1"
-                                               Text="Workers:"
-                                               Margin="20,0,5,0"
-                                               VerticalAlignment="Center"/>
-
                                     <TextBlock x:Name="WorkerCountText"
-                                               Grid.Column="2"
-                                               Text="1"
-                                               FontWeight="Bold"
+                                               Grid.Column="1"
+                                               Text="Workers: 0 active / 1"
+                                               FontWeight="SemiBold"
+                                               Margin="15,0,0,0"
                                                VerticalAlignment="Center"/>
-
-                                    <TextBox x:Name="FilterTextBox"
-                                             Grid.Column="3"
-                                             Margin="15,0,0,0"
-                                             Padding="6,4"
-                                             VerticalContentAlignment="Center"
-                                             Tag="Filter targets..."
-                                             TextChanged="FilterTextBox_TextChanged"/>
                                 </Grid>
                             </Border>
 
@@ -228,10 +214,16 @@
                             MinWidth="180"/>
 
                                     <DataGridTextColumn Header="Type"
-                            Binding="{Binding Type}"
+                            Binding="{Binding TypeDisplay}"
                             SortMemberPath="Type"
-                            Width="90"
-                            MinWidth="80"/>
+                            Width="120"
+                            MinWidth="100"/>
+
+                                    <DataGridTextColumn Header="Cluster"
+                            Binding="{Binding ClusterName}"
+                            SortMemberPath="ClusterName"
+                            Width="*"
+                            MinWidth="120"/>
 
                                     <DataGridTemplateColumn Header="DNS"
                                 SortMemberPath="NameResolved"
@@ -319,10 +311,25 @@
                                      Maximum="1"
                                      Visibility="Collapsed"/>
 
-                        <TextBlock x:Name="StatusText"
-                                   Grid.Row="1"
-                                   Margin="0,6,0,0"
-                                   Foreground="#666666"/>
+                        <Grid Grid.Row="1"
+                              Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock x:Name="StatusText"
+                                       Foreground="#666666"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <TextBlock x:Name="ElapsedText"
+                                       Grid.Column="1"
+                                       Margin="12,0,0,0"
+                                       FontFamily="Consolas"
+                                       FontWeight="SemiBold"
+                                       Foreground="#1F4E8C"
+                                       Visibility="Collapsed"/>
+                        </Grid>
                     </Grid>
 
                     <!-- Action bar -->
@@ -344,7 +351,6 @@
             Width="120"
             Height="35"
             HorizontalAlignment="Left"
-            IsEnabled="False"
             Click="CancelButton_Click"/>
 
                             <!-- Right -->
@@ -368,12 +374,6 @@
                 IsEnabled="False"
                 Click="CollectButton_Click"/>
 
-                                <Button x:Name="GoToMainButton"
-                Content="Go to Main"
-                Width="120"
-                Height="35"
-                IsEnabled="False"
-                Click="GoToMainButton_Click"/>
 
                             </StackPanel>
                         </Grid>
@@ -479,7 +479,6 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
                             <Grid.ColumnDefinitions>
@@ -517,20 +516,8 @@
                                      Grid.Row="2"
                                      Grid.Column="1"
                                      Text="30"
-                                     Height="28"
-                                     Margin="0,0,0,8"/>
+                                     Height="28"/>
 
-                            <TextBlock Grid.Row="3"
-                                       Grid.Column="0"
-                                       Text="Max concurrent workers:"
-                                       VerticalAlignment="Center"/>
-
-                            <TextBox x:Name="MaxWorkersTextBox"
-                                     Grid.Row="3"
-                                     Grid.Column="1"
-                                     Text="0"
-                                     Height="28"
-                                     ToolTip="0 = auto-calculate based on target count"/>
                         </Grid>
 
                         <TextBlock Grid.Row="5"
@@ -550,6 +537,93 @@
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Live Log">
+                <Grid Margin="0,12,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal"
+                                    DockPanel.Dock="Right">
+                            <Button Content="Copy"
+                                    Width="80"
+                                    Height="28"
+                                    Margin="0,0,8,0"
+                                    Click="LogCopyButton_Click"/>
+                            <Button Content="Save..."
+                                    Width="80"
+                                    Height="28"
+                                    Margin="0,0,8,0"
+                                    Click="LogSaveButton_Click"/>
+                            <Button Content="Clear"
+                                    Width="80"
+                                    Height="28"
+                                    Click="LogClearButton_Click"/>
+                        </StackPanel>
+
+                        <CheckBox x:Name="LogAutoScrollCheckBox"
+                                  Content="Auto-scroll"
+                                  IsChecked="True"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,16,0"/>
+
+                        <TextBlock x:Name="LogCountText"
+                                   Foreground="#666666"
+                                   VerticalAlignment="Center"/>
+                    </DockPanel>
+
+                    <DataGrid x:Name="LogDataGrid"
+                              Grid.Row="1"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="None"
+                              SelectionMode="Extended"
+                              SelectionUnit="FullRow"
+                              FontFamily="Consolas"
+                              FontSize="12"
+                              EnableRowVirtualization="True"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Level}" Value="Error">
+                                        <Setter Property="Foreground" Value="#C42B2B"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Level}" Value="Warning">
+                                        <Setter Property="Foreground" Value="#B26A00"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Level}" Value="Step">
+                                        <Setter Property="Foreground" Value="#1F4E8C"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.RowStyle>
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Time"
+                                                Binding="{Binding Timestamp, StringFormat=HH:mm:ss.fff}"
+                                                Width="100"/>
+                            <DataGridTextColumn Header="Level"
+                                                Binding="{Binding Level}"
+                                                Width="70"/>
+                            <DataGridTextColumn Header="Source"
+                                                Binding="{Binding Source}"
+                                                Width="110"/>
+                            <DataGridTextColumn Header="Target"
+                                                Binding="{Binding Target}"
+                                                Width="180"/>
+                            <DataGridTextColumn Header="Message"
+                                                Binding="{Binding Message}"
+                                                Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
             </TabItem>
         </TabControl>
     </Grid>

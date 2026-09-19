@@ -10,4 +10,3 @@ Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.dll
 Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\refint\HyperVToolsX.Core.dll
 Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVToolsX.Core.pdb
 Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\ref\HyperVToolsX.Core.dll
-Y:\HyperVToolsX\HyperVToolsX.Core\obj\Debug\net10.0\HyperVTo.32F69A23.Up2Date

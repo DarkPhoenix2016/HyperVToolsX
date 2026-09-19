@@ -1,11 +1,19 @@
 ﻿using System.Diagnostics;
 using System.Management.Automation;
 using System.Text;
+using HyperVToolsX.Core.Logging;
 
 namespace HyperVToolsX.Infrastructure.PowerShellEngine;
 
 public class PowerShellExecutor
 {
+    private readonly ILiveLog _log;
+
+    public PowerShellExecutor(ILiveLog? log = null)
+    {
+        _log = log ?? NullLiveLog.Instance;
+    }
+
     /// <summary>
     /// Executes a raw script string inside the application's PowerShell runspace.
     /// Prefer ExecuteCommandAsync/ExecutePipelineAsync for anything that includes
@@ -95,7 +103,8 @@ public class PowerShellExecutor
     public async Task<string> ExecuteWindowsPowerShellAsync(
     string script,
     CancellationToken cancellationToken = default,
-    IReadOnlyDictionary<string, string>? environmentVariables = null)
+    IReadOnlyDictionary<string, string>? environmentVariables = null,
+    string? logTarget = null)
     {
         if (string.IsNullOrWhiteSpace(script))
         {
@@ -148,10 +157,21 @@ public class PowerShellExecutor
                 EnableRaisingEvents = true
             };
 
+            var stopwatch = Stopwatch.StartNew();
+
             if (!process.Start())
             {
                 throw new InvalidOperationException("Unable to start Windows PowerShell 5.1.");
             }
+
+            // Only variable NAMES are logged, never their values.
+            _log.Step(
+                "PowerShell",
+                $"Started powershell.exe 5.1 (pid {process.Id}), script {script.Length:N0} chars" +
+                (environmentVariables is { Count: > 0 }
+                    ? $", env: {string.Join(", ", environmentVariables.Keys)}"
+                    : string.Empty),
+                logTarget);
 
             using var registration = cancellationToken.Register(() =>
             {
@@ -195,10 +215,28 @@ public class PowerShellExecutor
             var standardOutput = await standardOutputTask;
             var standardError = await standardErrorTask;
 
+            stopwatch.Stop();
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _log.Warn("PowerShell", $"Process cancelled after {stopwatch.Elapsed.TotalSeconds:F1}s", logTarget);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
+
+            _log.Info(
+                "PowerShell",
+                $"Process exited with code {process.ExitCode} after {stopwatch.Elapsed.TotalSeconds:F1}s " +
+                $"(stdout {standardOutput.Length:N0} chars, stderr {standardError.Length:N0} chars)",
+                logTarget);
 
             if (process.ExitCode != 0)
             {
+                _log.Error(
+                    "PowerShell",
+                    $"stderr: {Truncate(standardError, 600)}",
+                    logTarget);
+
                 var error = string.IsNullOrWhiteSpace(standardError)
                     ? $"Windows PowerShell exited with code {process.ExitCode}."
                     : standardError.Trim();
@@ -227,6 +265,12 @@ public class PowerShellExecutor
                 // Cleanup failure should not hide the actual result.
             }
         }
+    }
+
+    private static string Truncate(string value, int max)
+    {
+        var trimmed = value.Trim();
+        return trimmed.Length <= max ? trimmed : trimmed[..max] + "...";
     }
 
     private static void AddCommand(

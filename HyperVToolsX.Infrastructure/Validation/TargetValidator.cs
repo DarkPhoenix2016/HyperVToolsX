@@ -4,21 +4,31 @@ using System.Net.Sockets;
 using System.Text.Json;
 using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Interfaces;
+using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Core.Models;
 using HyperVToolsX.Infrastructure.PowerShellEngine;
+using HyperVToolsX.Infrastructure.Remoting;
 
 namespace HyperVToolsX.Infrastructure.Validation;
 
 public class TargetValidator : ITargetValidator
 {
-    private readonly PowerShellExecutor _powerShell;
+    private readonly RemoteScriptRunner _runner;
+    private readonly ILiveLog _log;
 
     public TargetValidator(PowerShellExecutor powerShell)
+        : this(new RemoteScriptRunner(powerShell))
     {
-        _powerShell =
-            powerShell
+    }
+
+    public TargetValidator(RemoteScriptRunner runner, ILiveLog? log = null)
+    {
+        _runner =
+            runner
             ?? throw new ArgumentNullException(
-                nameof(powerShell));
+                nameof(runner));
+
+        _log = log ?? NullLiveLog.Instance;
     }
 
     public async Task<TargetValidationResult> ValidateAsync(
@@ -59,6 +69,8 @@ public class TargetValidator : ITargetValidator
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            _log.Step("Validation", "Started", targetName);
 
             // =========================================================
             // 1. DNS / NAME RESOLUTION
@@ -102,6 +114,8 @@ public class TargetValidator : ITargetValidator
             }
 
             result.NameResolved = true;
+
+            _log.Info("Validation", $"DNS resolved to {string.Join(", ", addresses.Select(a => a.ToString()))}", targetName);
 
             // Prefer IPv4.
             var resolvedAddress =
@@ -164,6 +178,8 @@ public class TargetValidator : ITargetValidator
 
             result.PingSucceeded = true;
 
+            _log.Info("Validation", $"Ping OK ({pingReply.RoundtripTime} ms)", targetName);
+
             // =========================================================
             // 3. HYPER-V CONNECTIVITY
             //
@@ -181,6 +197,8 @@ public class TargetValidator : ITargetValidator
                 TargetValidationStatus.Connecting;
 
             RemoteValidationResult? remoteResult;
+
+            _log.Step("Validation", "Checking Hyper-V role and failover cluster membership over WinRM", targetName);
 
             try
             {
@@ -241,6 +259,11 @@ public class TargetValidator : ITargetValidator
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            _log.Info(
+                "Validation",
+                $"Hyper-V reachable. Host={remoteResult.HostName}, IsCluster={remoteResult.IsCluster}, Cluster='{remoteResult.ClusterName}'",
+                targetName);
+
             if (remoteResult.IsCluster)
             {
                 result.IsCluster = true;
@@ -253,8 +276,12 @@ public class TargetValidator : ITargetValidator
 
                 result.ErrorMessage = null;
 
+                // A cluster name (CNO) vs. one of its nodes: only the cluster
+                // itself matches the cluster's own name.
                 target.Type =
-                    TargetType.Cluster;
+                    SameShortName(targetName, result.ClusterName)
+                        ? TargetType.Cluster
+                        : TargetType.ClusteredHost;
 
                 target.Address =
                     result.ResolvedAddress
@@ -306,17 +333,22 @@ public class TargetValidator : ITargetValidator
         }
     }
 
+    private static bool SameShortName(string? a, string? b)
+    {
+        static string Short(string? value) =>
+            (value ?? string.Empty).Trim().Split('.')[0];
+
+        var left = Short(a);
+
+        return left.Length > 0
+            && left.Equals(Short(b), StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<RemoteValidationResult?>
         ValidateRemoteHyperVAsync(
             string computerName,
             CancellationToken cancellationToken)
     {
-        var escapedComputerName =
-            computerName.Replace(
-                "'",
-                "''",
-                StringComparison.Ordinal);
-
         var remoteScript = """
 $ErrorActionPreference = 'Stop'
 
@@ -381,35 +413,10 @@ $result |
     ConvertTo-Json -Compress -Depth 5
 """;
 
-        var localComputerName = Environment.MachineName;
-
-        var isLocalTarget =
-            computerName.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-            || computerName.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
-            || computerName.Equals("::1", StringComparison.OrdinalIgnoreCase)
-            || computerName.Equals(localComputerName, StringComparison.OrdinalIgnoreCase);
-
-        string command;
-
-        if (isLocalTarget)
-        {
-            command = remoteScript;
-        }
-        else
-        { 
-
-            command = $"""
-                $ErrorActionPreference = 'Stop'
-                $remoteScript = @'
-                {remoteScript}
-                '@
-                Invoke-Command -ComputerName '{escapedComputerName}' -ConfigurationName 'Microsoft.PowerShell' -ScriptBlock ([scriptblock]::Create($remoteScript))
-                """;
-        }
-
         var json =
-            await _powerShell.ExecuteWindowsPowerShellAsync(
-                command,
+            await _runner.RunAsync(
+                computerName,
+                remoteScript,
                 cancellationToken);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -489,10 +496,25 @@ $result |
         return TargetValidationStatus.Failed;
     }
 
-    private static TargetValidationResult Complete(
+    private TargetValidationResult Complete(
         TargetValidationResult result)
     {
         result.CompletedAt = DateTime.Now;
+
+        var summary =
+            $"Finished: {result.Status}" +
+            (string.IsNullOrWhiteSpace(result.ErrorMessage)
+                ? string.Empty
+                : $" - {result.ErrorMessage}");
+
+        if (result.Status is TargetValidationStatus.Ready or TargetValidationStatus.ClusterReady)
+        {
+            _log.Info("Validation", summary, result.TargetName);
+        }
+        else
+        {
+            _log.Error("Validation", summary, result.TargetName);
+        }
 
         return result;
     }

@@ -2,13 +2,16 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Threading;
 using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Interfaces;
+using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Core.Models;
 using HyperVToolsX.Infrastructure.Collection;
 using Microsoft.Win32;
@@ -21,6 +24,15 @@ public partial class TargetManagerView : UserControl
     private readonly ITargetValidator _targetValidator;
     private readonly CollectionOrchestrator _collectionOrchestrator;
     private readonly IInventoryCache _inventoryCache;
+    private readonly RemoteConnectionOptions _connectionOptions;
+    private readonly LiveLog _liveLog;
+
+    private const int MaxLogEntries = 10000;
+
+    private readonly ObservableCollection<LiveLogEntry> _logEntries = [];
+    private readonly DispatcherTimer _elapsedTimer;
+    private readonly System.Diagnostics.Stopwatch _operationStopwatch = new();
+    private string _operationName = string.Empty;
 
     private readonly ObservableCollection<TargetEntry> _targets = [];
     private readonly ICollectionView _targetsView;
@@ -29,15 +41,42 @@ public partial class TargetManagerView : UserControl
     private bool _validationCompleted;
     private bool _collectionCompleted;
 
-    public event EventHandler? CollectionCompleted;
+    /// <summary>
+    /// True once a collection has succeeded. The main window loads the cached
+    /// inventory when this window is closed.
+    /// </summary>
+    public bool HasCollectedInventory => _collectionCompleted;
+
+    private int _workerLimit = 1;
+    private int _activeWorkers;
 
     public TargetManagerView(
         ITargetManager targetManager,
         ITargetValidator targetValidator,
         CollectionOrchestrator collectionOrchestrator,
-        IInventoryCache inventoryCache)
+        IInventoryCache inventoryCache,
+        RemoteConnectionOptions connectionOptions,
+        LiveLog liveLog)
     {
         InitializeComponent();
+
+        _connectionOptions = connectionOptions;
+        _liveLog = liveLog;
+
+        LogDataGrid.ItemsSource = _logEntries;
+        UpdateLogCount();
+
+        Loaded += (_, _) => _liveLog.EntryWritten += LiveLog_EntryWritten;
+        Unloaded += (_, _) =>
+        {
+            _liveLog.EntryWritten -= LiveLog_EntryWritten;
+
+            // Closing the window mid-run must not leave workers running.
+            _operationCts?.Cancel();
+        };
+
+        _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _elapsedTimer.Tick += (_, _) => UpdateElapsedText();
 
         _targetManager = targetManager;
         _targetValidator = targetValidator;
@@ -49,31 +88,6 @@ public partial class TargetManagerView : UserControl
 
         UpdateTargetStatistics();
         UpdateActionButtons();
-    }
-
-    // =========================================================
-    // FILTERING
-    // =========================================================
-
-    private void FilterTextBox_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        var filter = FilterTextBox.Text?.Trim();
-
-        _targetsView.Filter = string.IsNullOrWhiteSpace(filter)
-            ? null
-            : item =>
-            {
-                if (item is not TargetEntry entry)
-                {
-                    return false;
-                }
-
-                return entry.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                    || entry.Result.Contains(filter, StringComparison.OrdinalIgnoreCase)
-                    || entry.ClusterName.Contains(filter, StringComparison.OrdinalIgnoreCase);
-            };
-
-        _targetsView.Refresh();
     }
 
     // =========================================================
@@ -90,7 +104,12 @@ public partial class TargetManagerView : UserControl
             return;
         }
 
-        using var cts = BeginOperation();
+        if (!TryApplyConnectionOptions())
+        {
+            return;
+        }
+
+        using var cts = BeginOperation("Collection");
 
         try
         {
@@ -107,19 +126,31 @@ public partial class TargetManagerView : UserControl
                 CollectIntegrationServices = true
             };
 
+            _workerLimit = request.MaxConcurrentTargets;
+            SetWorkers(Math.Min(_workerLimit, targets.Count));
+
             var progress = new Progress<CollectionProgress>(p =>
             {
                 SetProgress(p.CompletedTargets, p.TotalTargets);
+                SetWorkers(Math.Min(_workerLimit, Math.Max(0, p.TotalTargets - p.CompletedTargets)));
                 StatusText.Text = $"Collecting {p.CompletedTargets}/{p.TotalTargets}, {p.CurrentTarget}";
             });
 
             StatusText.Text = $"Starting collection for {targets.Count} target(s)...";
 
-            var result = await _collectionOrchestrator.CollectAsync(
-                targets,
-                request,
-                progress,
-                cts.Token);
+            _liveLog.Info(
+                "UI",
+                $"Start Collection clicked: {targets.Count} target(s), {request.MaxConcurrentTargets} worker(s) (auto, max {WorkerConfiguration.MaximumWorkers})");
+
+            var token = cts.Token;
+
+            var result = await Task.Run(
+                () => _collectionOrchestrator.CollectAsync(
+                    targets,
+                    request,
+                    progress,
+                    token),
+                token);
 
             ApplyCollectionResults(result);
 
@@ -135,7 +166,10 @@ public partial class TargetManagerView : UserControl
                 $"Successful targets: {result.SuccessfulTargets}\n" +
                 $"Failed targets: {result.FailedTargets}\n" +
                 $"Hosts: {result.TotalHosts}\n" +
-                $"Virtual machines: {result.TotalVirtualMachines}",
+                $"Virtual machines: {result.TotalVirtualMachines}\n\n" +
+                (result.SuccessfulTargets > 0
+                    ? "Close the Target Manager to load the inventory into the main window."
+                    : "No inventory was collected."),
                 "Collection Complete");
         }
         catch (OperationCanceledException)
@@ -222,14 +256,25 @@ public partial class TargetManagerView : UserControl
         _validationCompleted = false;
         _collectionCompleted = false;
 
-        using var cts = BeginOperation();
+        if (!TryApplyConnectionOptions())
+        {
+            return;
+        }
+
+        using var cts = BeginOperation("Validation");
 
         try
         {
             var targetEntries = _targets.ToList();
             var workerCount = _targetManager.CalculateWorkerCount(targetEntries.Count);
+            _workerLimit = workerCount;
+            SetWorkers(0);
 
             StatusText.Text = $"Validating {targetEntries.Count} target(s) using {workerCount} worker(s)...";
+
+            _liveLog.Info(
+                "UI",
+                $"Validate clicked: {targetEntries.Count} target(s), {workerCount} worker(s) (auto, max {WorkerConfiguration.MaximumWorkers})");
 
             var completed = 0;
             var total = targetEntries.Count;
@@ -285,7 +330,18 @@ public partial class TargetManagerView : UserControl
         while (queue.TryDequeue(out var entry))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await ValidateTargetAsync(entry, cancellationToken);
+
+            Dispatcher.Invoke(() => SetWorkers(Interlocked.Increment(ref _activeWorkers)));
+
+            try
+            {
+                await ValidateTargetAsync(entry, cancellationToken);
+            }
+            finally
+            {
+                Dispatcher.Invoke(() => SetWorkers(Interlocked.Decrement(ref _activeWorkers)));
+            }
+
             onItemCompleted();
         }
     }
@@ -309,6 +365,7 @@ public partial class TargetManagerView : UserControl
 
             var validation = await _targetValidator.ValidateAsync(target, cancellationToken);
 
+            entry.Type = target.Type;
             entry.ValidationStatus = validation.Status;
             entry.NameResolved = validation.NameResolved;
             entry.ResolvedAddress = validation.ResolvedAddress ?? string.Empty;
@@ -334,25 +391,6 @@ public partial class TargetManagerView : UserControl
             entry.ErrorMessage = ex.Message;
             _targetsView.Refresh();
         }
-    }
-
-    // =========================================================
-    // GO TO MAIN
-    // =========================================================
-
-    private void GoToMainButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (!_collectionCompleted)
-        {
-            return;
-        }
-
-        CollectionCompleted?.Invoke(this, EventArgs.Empty);
-
-        StatusText.Text = "Inventory loaded. Returning to main window...";
-
-        var window = Window.GetWindow(this);
-        window?.Close();
     }
 
     // =========================================================
@@ -417,6 +455,7 @@ public partial class TargetManagerView : UserControl
 
     private static void ResetEntry(TargetEntry entry)
     {
+        entry.Type = TargetType.StandaloneHost;
         entry.ValidationStatus = TargetValidationStatus.Pending;
         entry.NameResolved = false;
         entry.ResolvedAddress = string.Empty;
@@ -612,11 +651,16 @@ public partial class TargetManagerView : UserControl
     // OPERATION LIFECYCLE
     // =========================================================
 
-    private CancellationTokenSource BeginOperation()
+    private CancellationTokenSource BeginOperation(string operationName)
     {
         SetControlsEnabled(false);
 
-        CancelButton.IsEnabled = true;
+        _operationName = operationName;
+        _operationStopwatch.Restart();
+        ElapsedText.Visibility = Visibility.Visible;
+        UpdateElapsedText();
+        _elapsedTimer.Start();
+
         OperationProgressBar.Visibility = Visibility.Visible;
         OperationProgressBar.IsIndeterminate = true;
 
@@ -626,9 +670,17 @@ public partial class TargetManagerView : UserControl
 
     private void EndOperation()
     {
+        _elapsedTimer.Stop();
+        _operationStopwatch.Stop();
+        ElapsedText.Text = $"{_operationName} finished in {FormatElapsed(_operationStopwatch.Elapsed)}";
+
+        _liveLog.Info("UI", ElapsedText.Text);
+
         SetControlsEnabled(true);
 
-        CancelButton.IsEnabled = false;
+        _activeWorkers = 0;
+        SetWorkers(0);
+
         OperationProgressBar.Visibility = Visibility.Collapsed;
         OperationProgressBar.IsIndeterminate = false;
         OperationProgressBar.Value = 0;
@@ -636,6 +688,15 @@ public partial class TargetManagerView : UserControl
         _operationCts?.Dispose();
         _operationCts = null;
     }
+
+    private void SetWorkers(int active) =>
+        WorkerCountText.Text = $"Workers: {active} active / {_workerLimit}";
+
+    private void UpdateElapsedText() =>
+        ElapsedText.Text = $"{_operationName}: {FormatElapsed(_operationStopwatch.Elapsed)}";
+
+    private static string FormatElapsed(TimeSpan elapsed) =>
+        elapsed.ToString(elapsed.TotalHours >= 1 ? @"hh\:mm\:ss" : @"mm\:ss");
 
     private void SetControlsEnabled(bool isEnabled)
     {
@@ -645,7 +706,6 @@ public partial class TargetManagerView : UserControl
         ClearButton.IsEnabled = isEnabled;
         ValidateButton.IsEnabled = isEnabled && _targets.Count > 0;
         CollectButton.IsEnabled = isEnabled && _validationCompleted && _targets.Any(IsReadyForCollection);
-        GoToMainButton.IsEnabled = isEnabled && _collectionCompleted;
     }
 
     private void UpdateActionButtons()
@@ -655,8 +715,6 @@ public partial class TargetManagerView : UserControl
 
         ValidateButton.IsEnabled = hasTargets;
         CollectButton.IsEnabled = _validationCompleted && hasReadyTargets;
-        GoToMainButton.IsEnabled = _collectionCompleted;
-        CancelButton.IsEnabled = _operationCts != null;
     }
 
     private void SetProgress(int completed, int total)
@@ -673,9 +731,99 @@ public partial class TargetManagerView : UserControl
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        _operationCts?.Cancel();
-        CancelButton.IsEnabled = false;
+        if (_operationCts == null)
+        {
+            StatusText.Text = "Nothing is running.";
+            return;
+        }
+
+        _liveLog.Warn("UI", $"Cancel requested for {_operationName.ToLowerInvariant()}");
+
+        _operationCts.Cancel();
         StatusText.Text = "Cancelling...";
+    }
+
+    // =========================================================
+    // LIVE LOG
+    // =========================================================
+
+    private void LiveLog_EntryWritten(object? sender, LiveLogEntry entry)
+    {
+        // Raised from worker threads; marshal to the UI thread.
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () => AppendLog(entry));
+    }
+
+    private void AppendLog(LiveLogEntry entry)
+    {
+        _logEntries.Add(entry);
+
+        if (_logEntries.Count > MaxLogEntries)
+        {
+            for (var i = 0; i < MaxLogEntries / 10; i++)
+            {
+                _logEntries.RemoveAt(0);
+            }
+        }
+
+        UpdateLogCount();
+
+        if (LogAutoScrollCheckBox.IsChecked == true)
+        {
+            LogDataGrid.ScrollIntoView(entry);
+        }
+    }
+
+    private void UpdateLogCount() =>
+        LogCountText.Text = $"{_logEntries.Count:N0} entr{(_logEntries.Count == 1 ? "y" : "ies")}";
+
+    private static string FormatLogEntry(LiveLogEntry entry) =>
+        $"{entry.Timestamp:yyyy-MM-dd HH:mm:ss.fff}\t{entry.Level}\t{entry.Source}\t{entry.Target}\t{entry.Message}";
+
+    private void LogClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        _logEntries.Clear();
+        UpdateLogCount();
+    }
+
+    private void LogCopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        var rows = LogDataGrid.SelectedItems.Count > 0
+            ? LogDataGrid.SelectedItems.Cast<LiveLogEntry>()
+            : _logEntries;
+
+        var text = string.Join(Environment.NewLine, rows.Select(FormatLogEntry));
+
+        if (text.Length > 0)
+        {
+            Clipboard.SetText(text);
+        }
+    }
+
+    private void LogSaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Save Live Log",
+            Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+            FileName = $"HyperVToolsX-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt"
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            File.WriteAllLines(
+                dialog.FileName,
+                _logEntries.Select(FormatLogEntry),
+                new UTF8Encoding(false));
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message, "Save Log");
+        }
     }
 
     // =========================================================
@@ -685,7 +833,6 @@ public partial class TargetManagerView : UserControl
     private void UpdateTargetStatistics()
     {
         var count = _targets.Count;
-        var workers = _targetManager.CalculateWorkerCount(count);
         var readyCount = _targets.Count(IsReadyForCollection);
         var failedCount = _targets.Count(t => t.ValidationStatus is
             TargetValidationStatus.Failed or
@@ -697,7 +844,12 @@ public partial class TargetManagerView : UserControl
         TargetCountText.Text = $"{count} target{(count == 1 ? "" : "s")}";
         ReadyCountText.Text = readyCount > 0 ? $"{readyCount} ready" : string.Empty;
         FailedCountText.Text = failedCount > 0 ? $"{failedCount} failed" : string.Empty;
-        WorkerCountText.Text = workers.ToString();
+
+        if (_operationCts == null)
+        {
+            _workerLimit = _targetManager.CalculateWorkerCount(count);
+            SetWorkers(0);
+        }
     }
 
     // =========================================================
@@ -730,6 +882,48 @@ public partial class TargetManagerView : UserControl
     // =========================================================
     // WINDOWS CREDENTIALS
     // =========================================================
+
+    /// <summary>
+    /// Copies the Connection Settings tab into the shared options instance used
+    /// by validation and collection. Returns false (after telling the user) if
+    /// a field is invalid, so nothing runs with silently defaulted settings.
+    /// </summary>
+    private bool TryApplyConnectionOptions()
+    {
+        if (!int.TryParse(PortTextBox.Text, out var port) || port < 0 || port > 65535)
+        {
+            ShowError("Port must be a number from 0 to 65535 (0 = automatic).", "Connection Settings");
+            return false;
+        }
+
+        if (!int.TryParse(TimeoutTextBox.Text, out var timeout) || timeout < 0)
+        {
+            ShowError("Timeout must be a non-negative number of seconds.", "Connection Settings");
+            return false;
+        }
+
+        var useCurrent = UseCurrentWindowsCredentialsCheckBox.IsChecked == true;
+
+        if (!useCurrent && string.IsNullOrWhiteSpace(UsernameTextBox.Text))
+        {
+            ShowError("Enter a username, or use the current Windows credentials.", "Connection Settings");
+            return false;
+        }
+
+        _connectionOptions.UseCurrentCredentials = useCurrent;
+        _connectionOptions.Username = useCurrent ? string.Empty : UsernameTextBox.Text.Trim();
+        _connectionOptions.Password = useCurrent ? string.Empty : PasswordBox.Password;
+        _connectionOptions.Authentication =
+            (AuthenticationComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString()
+            ?? RemoteConnectionOptions.DefaultAuthentication;
+        _connectionOptions.UseSsl = UseSslCheckBox.IsChecked == true;
+        _connectionOptions.Port = port;
+        _connectionOptions.TimeoutSeconds = timeout;
+        _connectionOptions.SkipCaCertificateCheck = SkipCaCertificateCheckBox.IsChecked == true;
+        _connectionOptions.SkipCnCheck = SkipCnHostnameCheckBox.IsChecked == true;
+
+        return true;
+    }
 
     private void UseCurrentWindowsCredentialsCheckBox_Changed(object sender, RoutedEventArgs e)
     {
