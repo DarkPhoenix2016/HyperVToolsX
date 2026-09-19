@@ -10,8 +10,69 @@
         WindowStartupLocation="CenterScreen">
     <Window.Resources>
         <converters:ByteSizeConverter x:Key="ByteSizeConverter"/>
+
+        <!-- Modern flat icon-button style used in the header toolbar -->
+        <Style x:Key="IconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#22FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#33FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Rounded, focus-aware search box -->
+        <Style x:Key="SearchBoxStyle" TargetType="TextBox">
+            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Margin="{TemplateBinding Padding}"
+                                          VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#0067B8"/>
+                                <Setter TargetName="Border" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
-    
+
     <Grid Background="#F5F5F5">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -20,18 +81,18 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="24"/>
+            <RowDefinition Height="26"/>
         </Grid.RowDefinitions>
 
         <Menu Grid.Row="0">
             <MenuItem Header="_File">
-                <MenuItem Header="_Connect..." Click="ConnectMenuItem_Click"/>
+                <MenuItem Header="_Connect..." Click="ConnectMenuItem_Click" InputGestureText="Ctrl+N"/>
                 <MenuItem Header="Disconnect Selected" Click="DisconnectSelectedMenuItem_Click"/>
                 <MenuItem Header="Disconnect All" Click="DisconnectAllMenuItem_Click"/>
                 <Separator/>
-                <MenuItem Header="Export to Excel"/>
+                <MenuItem Header="Export to Excel..." Click="ExportToExcelMenuItem_Click" InputGestureText="Ctrl+E"/>
                 <Separator/>
-                <MenuItem Header="Exit"/>
+                <MenuItem Header="Exit" Click="ExitMenuItem_Click"/>
             </MenuItem>
             <MenuItem Header="_Preferences">
                 <MenuItem Header="Data Size Unit">
@@ -80,39 +141,76 @@
                 </MenuItem>
             </MenuItem>
             <MenuItem Header="_View">
-                <MenuItem Header="Refresh"/>
+                <MenuItem Header="Refresh" Click="RefreshMenuItem_Click" InputGestureText="F5"/>
             </MenuItem>
             <MenuItem Header="_Tools"/>
             <MenuItem Header="_Help">
-                <MenuItem Header="About HyperVToolsX"/>
+                <MenuItem Header="About HyperVToolsX" Click="AboutMenuItem_Click"/>
             </MenuItem>
         </Menu>
 
         <Border Grid.Row="1"
-                Background="#0067B8"
                 Padding="18,12">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="HyperVToolsX"
-                               Foreground="White"
-                               FontSize="28"
-                               FontWeight="Bold"/>
-                    <Border Background="#FFD400"
-                            CornerRadius="3"
-                            Margin="10,3,0,0"
-                            Padding="6,2"
-                            VerticalAlignment="Top">
-                        <TextBlock Text="BETA"
-                                   Foreground="#333333"
-                                   FontSize="11"
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#0067B8" Offset="0"/>
+                    <GradientStop Color="#0053A0" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="HyperVToolsX"
+                                   Foreground="White"
+                                   FontSize="28"
                                    FontWeight="Bold"/>
-                    </Border>
+                        <Border Background="#FFD400"
+                                CornerRadius="3"
+                                Margin="10,3,0,0"
+                                Padding="6,2"
+                                VerticalAlignment="Top">
+                            <TextBlock Text="BETA"
+                                       Foreground="#333333"
+                                       FontSize="11"
+                                       FontWeight="Bold"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Text="Hyper-V Inventory &amp; Documentation Tool"
+                               Foreground="#D9E9F8"
+                               FontSize="13"
+                               Margin="0,2,0,0"/>
                 </StackPanel>
-                <TextBlock Text="Hyper-V Inventory &amp; Documentation Tool"
-                           Foreground="White"
-                           FontSize="13"
-                           Margin="0,2,0,0"/>
-            </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Button x:Name="RefreshHeaderButton"
+                            Style="{StaticResource IconButtonStyle}"
+                            Content="&#x21BB;  Refresh"
+                            Margin="0,0,4,0"
+                            ToolTip="Reload the current inventory snapshot (F5)"
+                            Click="RefreshMenuItem_Click"/>
+
+                    <Button x:Name="ExportHeaderButton"
+                            Style="{StaticResource IconButtonStyle}"
+                            Content="&#x2913;  Export"
+                            Margin="0,0,4,0"
+                            ToolTip="Export the current inventory to Excel (Ctrl+E)"
+                            Click="ExportToExcelMenuItem_Click"/>
+
+                    <Button x:Name="ConnectHeaderButton"
+                            Style="{StaticResource IconButtonStyle}"
+                            Content="&#x1F517;  Connect..."
+                            ToolTip="Add or manage Hyper-V targets (Ctrl+N)"
+                            Click="ConnectMenuItem_Click"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <UniformGrid Grid.Row="2"
@@ -201,17 +299,49 @@
 
             <Grid Grid.Column="0"
                   Margin="0,0,8,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
                 <TextBox x:Name="VmSearchTextBox"
+                         Grid.Column="0"
+                         Style="{StaticResource SearchBoxStyle}"
                          Height="32"
-                         Padding="10,0"
+                         Padding="30,0,8,0"
                          VerticalContentAlignment="Center"
-                         TextChanged="VmSearchTextBox_TextChanged"/>
+                         TextChanged="VmSearchTextBox_TextChanged"
+                         KeyDown="VmSearchTextBox_KeyDown"/>
+
+                <TextBlock Text="&#x1F50D;"
+                           Margin="8,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="#999999"
+                           IsHitTestVisible="False"/>
+
                 <TextBlock x:Name="VmSearchPlaceholder"
                            Text="Search VMs, hosts, or IP addresses..."
-                           Margin="10,0"
+                           Margin="30,0,0,0"
                            VerticalAlignment="Center"
                            Foreground="Gray"
                            IsHitTestVisible="False"/>
+
+                <Button x:Name="ClearSearchButton"
+                        Grid.Column="0"
+                        Content="&#x2715;"
+                        Width="22"
+                        Height="22"
+                        Padding="0"
+                        Margin="0,0,6,0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Foreground="#888888"
+                        Cursor="Hand"
+                        Visibility="Collapsed"
+                        ToolTip="Clear search (Esc)"
+                        Click="ClearSearchButton_Click"/>
             </Grid>
 
             <Grid Grid.Column="1"
@@ -336,16 +466,6 @@
                                         SortMemberPath="ProcessorCount"
                                         Width="120"/>
 
-                            <DataGridTextColumn Header="Memory Assigned"
-                                        Binding="{Binding MemoryAssigned}"
-                                        SortMemberPath="MemoryAssigned"
-                                        Width="140"/>
-
-                            <DataGridTextColumn Header="Memory Demand"
-                                        Binding="{Binding MemoryDemand}"
-                                        SortMemberPath="MemoryDemand"
-                                        Width="140"/>
-
                             <DataGridTextColumn Header="Memory Status"
                                         Binding="{Binding MemoryStatus}"
                                         SortMemberPath="MemoryStatus"
@@ -356,20 +476,35 @@
                                         SortMemberPath="DynamicMemoryEnabled"
                                         Width="130"/>
 
-                            <DataGridTextColumn Header="Memory Startup"
-                                        Binding="{Binding MemoryStartup}"
-                                        SortMemberPath="MemoryStartup"
-                                        Width="140"/>
+                            <DataGridTextColumn
+                                Header="Memory Assigned"
+                                Binding="{Binding MemoryAssigned, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryAssigned"
+                                Width="140"/>
 
-                            <DataGridTextColumn Header="Memory Minimum"
-                                        Binding="{Binding MemoryMinimum}"
-                                        SortMemberPath="MemoryMinimum"
-                                        Width="140"/>
+                            <DataGridTextColumn
+                                Header="Memory Demand"
+                                Binding="{Binding MemoryDemand, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryDemand"
+                                Width="140"/>
 
-                            <DataGridTextColumn Header="Memory Maximum"
-                                        Binding="{Binding MemoryMaximum}"
-                                        SortMemberPath="MemoryMaximum"
-                                        Width="140"/>
+                            <DataGridTextColumn
+                                Header="Memory Startup"
+                                Binding="{Binding MemoryStartup, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryStartup"
+                                Width="140"/>
+
+                            <DataGridTextColumn
+                                Header="Memory Minimum"
+                                Binding="{Binding MemoryMinimum, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryMinimum"
+                                Width="140"/>
+
+                            <DataGridTextColumn
+                                Header="Memory Maximum"
+                                Binding="{Binding MemoryMaximum, Converter={StaticResource ByteSizeConverter}}"
+                                SortMemberPath="MemoryMaximum"
+                                Width="140"/>
 
                             <DataGridTextColumn Header="Generation"
                                         Binding="{Binding Generation}"
@@ -766,30 +901,29 @@
                                     SortMemberPath="DynamicMemoryEnabled"
                                     Width="140"/>
 
-                        <DataGridTextColumn Header="Maximum"
-                                    Binding="{Binding Maximum}"
-                                    SortMemberPath="Maximum"
-                                    Width="150"/>
+                        <DataGridTextColumn
+                            Header="Maximum"
+                            Binding="{Binding Maximum, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="Maximum"
+                            Width="150"/>
 
-                        <DataGridTextColumn Header="Maximum/NUMA Node"
-                                    Binding="{Binding MaximumPerNumaNode}"
-                                    SortMemberPath="MaximumPerNumaNode"
-                                    Width="160"/>
+                        <DataGridTextColumn
+                            Header="Maximum/NUMA Node"
+                            Binding="{Binding MaximumPerNumaNode, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="MaximumPerNumaNode"
+                            Width="160"/>
 
-                        <DataGridTextColumn Header="Minimum"
-                                    Binding="{Binding Minimum}"
-                                    SortMemberPath="Minimum"
-                                    Width="150"/>
+                        <DataGridTextColumn
+                            Header="Minimum"
+                            Binding="{Binding Minimum, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="Minimum"
+                            Width="150"/>
 
-                        <DataGridTextColumn Header="Priority"
-                                    Binding="{Binding Priority}"
-                                    SortMemberPath="Priority"
-                                    Width="100"/>
-
-                        <DataGridTextColumn Header="Startup"
-                                    Binding="{Binding Startup}"
-                                    SortMemberPath="Startup"
-                                    Width="150"/>
+                        <DataGridTextColumn
+                            Header="Startup"
+                            Binding="{Binding Startup, Converter={StaticResource ByteSizeConverter}}"
+                            SortMemberPath="Startup"
+                            Width="150"/>
 
                         <DataGridTextColumn Header="Huge Pages"
                                     Binding="{Binding HugePagesEnabled}"
@@ -1079,9 +1213,9 @@
                     Header="Version" />
 
                             <DataGridTextColumn
-                    Width="150"
-                    Binding="{Binding SizeOfSystemFiles}"
-                    Header="System Files Size" />
+    Width="180"
+    Binding="{Binding SizeOfSystemFiles, Converter={StaticResource ByteSizeConverter}}"
+    Header="System Files Size" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
@@ -1256,9 +1390,9 @@
                     Header="Smart Paging In Use" />
 
                             <DataGridTextColumn
-                    Width="150"
-                    Binding="{Binding SizeOfSystemFiles}"
-                    Header="System Files Size" />
+    Width="150"
+    Binding="{Binding SizeOfSystemFiles, Converter={StaticResource ByteSizeConverter}}"
+    Header="System Files Size" />
 
                             <DataGridTextColumn
                     Width="280"
@@ -1394,7 +1528,7 @@
                     </DataGrid>
                 </Grid>
             </TabItem>
-            
+
             <TabItem Header="vDisk">
                 <Grid>
                     <DataGrid
@@ -1516,34 +1650,34 @@
                     Header="VHD Type" />
 
                             <DataGridTextColumn
-                    Width="160"
-                    Binding="{Binding FileSize}"
-                    Header="File Size" />
+    Width="160"
+    Binding="{Binding FileSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="File Size" />
 
                             <DataGridTextColumn
-                    Width="160"
-                    Binding="{Binding Size}"
-                    Header="Virtual Size" />
+    Width="160"
+    Binding="{Binding Size, Converter={StaticResource ByteSizeConverter}}"
+    Header="Virtual Size" />
 
                             <DataGridTextColumn
-                    Width="160"
-                    Binding="{Binding MinimumSize}"
-                    Header="Minimum Size" />
+    Width="160"
+    Binding="{Binding MinimumSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Minimum Size" />
 
                             <DataGridTextColumn
-                    Width="180"
-                    Binding="{Binding LogicalSectorSize}"
-                    Header="Logical Sector Size" />
+    Width="180"
+    Binding="{Binding LogicalSectorSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Logical Sector Size" />
 
                             <DataGridTextColumn
-                    Width="180"
-                    Binding="{Binding PhysicalSectorSize}"
-                    Header="Physical Sector Size" />
+    Width="180"
+    Binding="{Binding PhysicalSectorSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Physical Sector Size" />
 
                             <DataGridTextColumn
-                    Width="150"
-                    Binding="{Binding BlockSize}"
-                    Header="Block Size" />
+    Width="150"
+    Binding="{Binding BlockSize, Converter={StaticResource ByteSizeConverter}}"
+    Header="Block Size" />
 
                             <DataGridTextColumn
                     Width="450"
@@ -2015,9 +2149,9 @@
                     Binding="{Binding CrossSubnetThreshold}" />
 
                             <DataGridTextColumn
-                    Width="190"
-                    Header="Shared Volume Block Cache (MB)"
-                    Binding="{Binding SharedVolumeBlockCacheSizeInMB}" />
+    Header="Shared Volume Block Cache"
+    Binding="{Binding SharedVolumeBlockCacheSizeInMB, Converter={StaticResource ByteSizeConverter}, ConverterParameter=MB}"
+    Width="220"/>
 
                             <DataGridTextColumn
                     Width="260"
@@ -2090,15 +2224,15 @@
 
                             <!-- Memory -->
                             <DataGridTextColumn
-                    Width="150"
-                    Header="Total Memory (Bytes)"
-                    Binding="{Binding TotalMemoryBytes}" />
+    Width="150"
+    Header="Total Memory"
+    Binding="{Binding TotalMemoryBytes, Converter={StaticResource ByteSizeConverter}}" />
+
 
                             <DataGridTextColumn
-                    Width="150"
-                    Header="Used Memory (Bytes)"
-                    Binding="{Binding UsedMemoryBytes}" />
-
+    Width="150"
+    Header="Used Memory"
+    Binding="{Binding UsedMemoryBytes, Converter={StaticResource ByteSizeConverter}}" />
 
                             <!-- Operating System -->
                             <DataGridTextColumn
@@ -2129,14 +2263,14 @@
 
                             <!-- OS Memory -->
                             <DataGridTextColumn
-                    Width="180"
-                    Header="Visible Memory (KB)"
-                    Binding="{Binding TotalVisibleMemorySizeKb}" />
+    Width="180"
+    Header="Visible Memory"
+    Binding="{Binding TotalVisibleMemorySizeKb, Converter={StaticResource ByteSizeConverter}, ConverterParameter=KB}" />
 
                             <DataGridTextColumn
-                    Width="180"
-                    Header="Free Physical Memory (KB)"
-                    Binding="{Binding FreePhysicalMemoryKb}" />
+    Width="180"
+    Header="Free Physical Memory"
+    Binding="{Binding FreePhysicalMemoryKb, Converter={StaticResource ByteSizeConverter}, ConverterParameter=KB}" />
 
 
                             <!-- Hyper-V Storage -->
@@ -2205,11 +2339,19 @@
             </TabItem>
 
         </TabControl>
-        
+
         <StatusBar Grid.Row="6">
             <StatusBarItem>
-                <TextBlock x:Name="StatusText"
-                           Text="Ready"/>
+                <StackPanel Orientation="Horizontal">
+                    <ProgressBar x:Name="BusyIndicator"
+                                 Width="80"
+                                 Height="12"
+                                 Margin="0,0,8,0"
+                                 IsIndeterminate="True"
+                                 Visibility="Collapsed"/>
+                    <TextBlock x:Name="StatusText"
+                               Text="Ready"/>
+                </StackPanel>
             </StatusBarItem>
             <Separator/>
             <StatusBarItem HorizontalAlignment="Right">

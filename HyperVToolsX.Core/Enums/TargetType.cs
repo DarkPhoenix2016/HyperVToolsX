@@ -3,5 +3,8 @@
 public enum TargetType
 {
     StandaloneHost,
-    Cluster
+    Cluster,
+
+    /// <summary>A standalone-addressed node that belongs to a failover cluster.</summary>
+    ClusteredHost
 }

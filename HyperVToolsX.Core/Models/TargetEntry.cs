@@ -9,6 +9,15 @@ public class TargetEntry
     public TargetType Type { get; set; } =
         TargetType.StandaloneHost;
 
+    /// <summary>Grid-friendly label for <see cref="Type"/>.</summary>
+    public string TypeDisplay =>
+        Type switch
+        {
+            TargetType.Cluster => "Cluster",
+            TargetType.ClusteredHost => "Clustered Host",
+            _ => "Standalone Host"
+        };
+
     public TargetValidationStatus ValidationStatus { get; set; } =
         TargetValidationStatus.Pending;
 

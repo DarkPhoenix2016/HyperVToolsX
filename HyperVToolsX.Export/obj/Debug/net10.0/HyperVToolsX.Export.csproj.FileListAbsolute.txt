@@ -1,0 +1,16 @@
+Y:\HyperVToolsX\HyperVToolsX.Export\bin\Debug\net10.0\HyperVToolsX.Export.deps.json
+Y:\HyperVToolsX\HyperVToolsX.Export\bin\Debug\net10.0\HyperVToolsX.Export.dll
+Y:\HyperVToolsX\HyperVToolsX.Export\bin\Debug\net10.0\HyperVToolsX.Export.pdb
+Y:\HyperVToolsX\HyperVToolsX.Export\bin\Debug\net10.0\HyperVToolsX.Core.dll
+Y:\HyperVToolsX\HyperVToolsX.Export\bin\Debug\net10.0\HyperVToolsX.Core.pdb
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.csproj.AssemblyReference.cache
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.GeneratedMSBuildEditorConfig.editorconfig
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.AssemblyInfoInputs.cache
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.AssemblyInfo.cs
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.csproj.CoreCompileInputs.cache
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.sourcelink.json
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVTo.0C97E08B.Up2Date
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.dll
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\refint\HyperVToolsX.Export.dll
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\HyperVToolsX.Export.pdb
+Y:\HyperVToolsX\HyperVToolsX.Export\obj\Debug\net10.0\ref\HyperVToolsX.Export.dll

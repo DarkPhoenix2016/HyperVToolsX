@@ -1,5 +1,6 @@
 ﻿using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Core.Interfaces;
+using HyperVToolsX.Core.Logging;
 using HyperVToolsX.Core.Models;
 
 namespace HyperVToolsX.Infrastructure.Collection;
@@ -12,11 +13,16 @@ public class CollectionOrchestrator
 
     private readonly IInventoryCache _inventoryCache;
 
+    private readonly ILiveLog _log;
+
     public CollectionOrchestrator(
         ITargetValidator targetValidator,
         IInventoryCollector inventoryCollector,
-        IInventoryCache inventoryCache)
+        IInventoryCache inventoryCache,
+        ILiveLog? log = null)
     {
+        _log = log ?? NullLiveLog.Instance;
+
         _targetValidator = targetValidator;
 
         _inventoryCollector =
@@ -56,6 +62,10 @@ public class CollectionOrchestrator
     WorkerConfiguration.CalculateWorkerCount(
         targetList.Count);
 
+        _log.Info(
+            "Orchestrator",
+            $"Collection started: {targetList.Count} target(s), {workerCount} worker(s) (auto, max {WorkerConfiguration.MaximumWorkers})");
+
         var queue = new Queue<HyperVTarget>(targetList);
 
         var syncLock = new object();
@@ -75,6 +85,12 @@ public class CollectionOrchestrator
                 target => target.VirtualMachines.Count);
 
         result.CompletedAt = DateTime.Now;
+
+        _log.Info(
+            "Orchestrator",
+            $"Collection finished in {(DateTime.Now - result.StartedAt).TotalSeconds:F1}s: " +
+            $"{result.SuccessfulTargets} succeeded, {result.FailedTargets} failed, " +
+            $"{result.TotalHosts} host(s), {result.TotalVirtualMachines} VM(s)");
 
         return result;
 
@@ -108,6 +124,8 @@ public class CollectionOrchestrator
         async Task ProcessTargetAsync(
             HyperVTarget target)
         {
+            _log.Step("Orchestrator", "Re-validating before collection", target.Name);
+
             var validation =
                 await _targetValidator.ValidateAsync(
                     target,
@@ -119,6 +137,8 @@ public class CollectionOrchestrator
             {
                 target.Status =
                     Core.Enums.ConnectionStatus.Failed;
+
+                _log.Error("Orchestrator", $"Skipped: validation failed ({validation.Status})", target.Name);
 
                 lock (syncLock)
                 {
@@ -161,6 +181,8 @@ public class CollectionOrchestrator
                 {
                     result.SuccessfulTargets++;
                 }
+
+                _log.Info("Orchestrator", "Collection succeeded", target.Name);
             }
             catch (OperationCanceledException)
             {
@@ -176,6 +198,8 @@ public class CollectionOrchestrator
 
                 target.Validation.ErrorMessage =
                     ex.Message;
+
+                _log.Error("Orchestrator", $"Collection failed: {ex.Message}", target.Name);
 
                 lock (syncLock)
                 {
