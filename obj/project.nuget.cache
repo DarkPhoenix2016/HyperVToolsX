@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "dgSpecHash": "UgUJEqj2LT4=",
+  "success": false,
+  "projectFilePath": "Y:\\HyperVToolsX\\HyperVToolsX.App.csproj",
+  "expectedPackageFiles": [],
+  "logs": [
+    {
+      "code": "NU1104",
+      "level": "Error",
+      "message": "Unable to find project 'Y:\\HyperVToolsX.Export\\HyperVToolsX.Export.csproj'. Check that the project reference is valid and that the project file exists.",
+      "projectPath": "Y:\\HyperVToolsX\\HyperVToolsX.App.csproj",
+      "filePath": "Y:\\HyperVToolsX\\HyperVToolsX.App.csproj",
+      "libraryId": "Y:\\HyperVToolsX.Export\\HyperVToolsX.Export.csproj",
+      "targetGraphs": [
+        "net10.0-windows7.0"
+      ]
+    },
+    {
+      "code": "NU1104",
+      "level": "Error",
+      "message": "Unable to find project 'Y:\\HyperVToolsX.Core\\HyperVToolsX.Core.csproj'. Check that the project reference is valid and that the project file exists.",
+      "projectPath": "Y:\\HyperVToolsX\\HyperVToolsX.App.csproj",
+      "filePath": "Y:\\HyperVToolsX\\HyperVToolsX.App.csproj",
+      "libraryId": "Y:\\HyperVToolsX.Core\\HyperVToolsX.Core.csproj",
+      "targetGraphs": [
+        "net10.0-windows7.0"
+      ]
+    },
+    {
+      "code": "NU1104",
+      "level": "Error",
+      "message": "Unable to find project 'Y:\\HyperVToolsX.Infrastructure\\HyperVToolsX.Infrastructure.csproj'. Check that the project reference is valid and that the project file exists.",
+      "projectPath": "Y:\\HyperVToolsX\\HyperVToolsX.App.csproj",
+      "filePath": "Y:\\HyperVToolsX\\HyperVToolsX.App.csproj",
+      "libraryId": "Y:\\HyperVToolsX.Infrastructure\\HyperVToolsX.Infrastructure.csproj",
+      "targetGraphs": [
+        "net10.0-windows7.0"
+      ]
+    }
+  ]
+}
