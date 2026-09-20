@@ -90,9 +90,13 @@ public sealed class CommandLineOptions
 
     public int TimeoutSeconds { get; init; } = 30;
 
+    public int OperationTimeoutSeconds { get; init; } = RemoteConnectionOptions.DefaultOperationTimeoutSeconds;
+
     public bool SkipCaCertificateCheck { get; init; }
 
     public bool SkipCnCheck { get; init; }
+
+    public bool AllowTrustedHostsChange { get; init; }
 
     public bool Silent { get; init; }
 
@@ -107,8 +111,10 @@ public sealed class CommandLineOptions
         UseSsl = UseSsl,
         Port = Port,
         TimeoutSeconds = TimeoutSeconds,
+        OperationTimeoutSeconds = OperationTimeoutSeconds,
         SkipCaCertificateCheck = SkipCaCertificateCheck,
-        SkipCnCheck = SkipCnCheck
+        SkipCnCheck = SkipCnCheck,
+        AllowTrustedHostsChange = AllowTrustedHostsChange
     };
 }
 
@@ -128,6 +134,8 @@ public sealed record CommandLineParseResult(
 /// </summary>
 public static class CommandLineParser
 {
+    public const string PasswordEnvironmentVariable = "HVTX_PASSWORD";
+
     public static CommandLineParseResult Parse(IEnumerable<string> args)
     {
         var errors = new List<string>();
@@ -138,15 +146,18 @@ public static class CommandLineParser
         string? hostFile = null;
         string? user = null;
         string? password = null;
+        string? passwordFile = null;
         string? auth = null;
         string? unit = null;
         var ssl = false;
         var skipCa = false;
         var skipCn = false;
+        var trustHosts = false;
         var silent = false;
         var help = false;
         int? port = null;
         int? timeout = null;
+        int? operationTimeout = null;
 
         foreach (var arg in args)
         {
@@ -186,6 +197,10 @@ public static class CommandLineParser
                     password = value;
                     break;
 
+                case "passwordfile":
+                    passwordFile = value;
+                    break;
+
                 case "auth":
                     auth = value;
                     break;
@@ -202,6 +217,10 @@ public static class CommandLineParser
                     skipCa = true;
                     break;
 
+                case "trusthosts":
+                    trustHosts = true;
+                    break;
+
                 case "skipcn":
                     skipCn = true;
                     break;
@@ -216,6 +235,10 @@ public static class CommandLineParser
 
                 case "timeout":
                     timeout = ParseInt(name, value, 1, int.MaxValue, errors);
+                    break;
+
+                case "optimeout":
+                    operationTimeout = ParseInt(name, value, 1, int.MaxValue, errors);
                     break;
 
                 default:
@@ -305,9 +328,29 @@ public static class CommandLineParser
             }
         }
 
-        if (!string.IsNullOrEmpty(user) && string.IsNullOrEmpty(password))
+        // A password on the command line is visible in the process list and task definitions, so it can
+        // also come from a file (first line) or the HVTX_PASSWORD environment variable.
+        if (string.IsNullOrEmpty(password) && !string.IsNullOrEmpty(passwordFile))
         {
-            errors.Add("/user requires /password.");
+            try
+            {
+                using var reader = new StreamReader(passwordFile);
+                password = reader.ReadLine() ?? string.Empty;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                errors.Add($"Cannot read /passwordfile '{passwordFile}': {ex.Message}");
+            }
+        }
+
+        if (string.IsNullOrEmpty(password) && !string.IsNullOrEmpty(user) && passwordFile is null)
+        {
+            password = Environment.GetEnvironmentVariable(PasswordEnvironmentVariable);
+        }
+
+        if (!string.IsNullOrEmpty(user) && string.IsNullOrEmpty(password) && errors.All(e => !e.StartsWith("Cannot read /passwordfile", StringComparison.Ordinal)))
+        {
+            errors.Add("/user requires /password, /passwordfile or the HVTX_PASSWORD environment variable.");
         }
 
         if (!string.IsNullOrEmpty(password) && string.IsNullOrEmpty(user))
@@ -358,8 +401,10 @@ public static class CommandLineParser
                 UseSsl = ssl,
                 Port = port ?? 0,
                 TimeoutSeconds = timeout ?? 30,
+                OperationTimeoutSeconds = operationTimeout ?? RemoteConnectionOptions.DefaultOperationTimeoutSeconds,
                 SkipCaCertificateCheck = skipCa,
                 SkipCnCheck = skipCn,
+                AllowTrustedHostsChange = trustHosts,
                 Silent = silent,
                 SizeUnit = sizeUnit
             },
@@ -388,7 +433,9 @@ public static class CommandLineParser
 
                 AUTHENTICATION OPTIONS:
           /user:<username>  Username (domain\user format)
-          /password:<pwd>   Password (use with /user)
+          /password:<pwd>   Password (use with /user). Visible in the process list; prefer:
+          /passwordfile:<f> Read the password from the first line of a file
+                            (or set the HVTX_PASSWORD environment variable)
           /auth:<method>    Authentication: Default, Negotiate,
                             Kerberos, Basic, CredSSP
 
@@ -397,7 +444,10 @@ public static class CommandLineParser
           /port:<number>    Custom port (default: 5985/5986)
           /skipca           Skip CA certificate check
           /skipcn           Skip CN hostname check
+          /trusthosts       Allow adding an IP target to this machine's WinRM TrustedHosts
+                            (persistent change; only needed for bare-IP targets over HTTP)
           /timeout:<secs>   Connection timeout (default: 30)
+          /optimeout:<secs> Max run time per host script (default: 300)
 
         OTHER OPTIONS:
           /unit:<unit>      Size unit for exported sizes: Bytes, KB, MB, GB, TB, PB

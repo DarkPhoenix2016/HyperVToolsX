@@ -90,6 +90,7 @@ public partial class MainWindow : Window
         // letting each view construct its own copies of these collaborators.
         // Composition root: build the shared object graph once here.
         _liveLog = new LiveLog();
+        _liveLog.EntryWritten += (_, entry) => App.FileLog.Write(entry);
         var powerShell = new PowerShellExecutor(_liveLog);
         var hyperVProvider = new HyperVProvider(powerShell);
         _connectionOptions = new RemoteConnectionOptions();

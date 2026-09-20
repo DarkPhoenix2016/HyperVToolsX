@@ -15,6 +15,9 @@ public class CollectionOrchestrator
 
     private readonly ILiveLog _log;
 
+    /// <summary>How long a successful validation is trusted before collection re-checks the target.</summary>
+    public static readonly TimeSpan ValidationReuseWindow = TimeSpan.FromMinutes(5);
+
     public CollectionOrchestrator(
         ITargetValidator targetValidator,
         IInventoryCollector inventoryCollector,
@@ -124,14 +127,30 @@ public class CollectionOrchestrator
         async Task ProcessTargetAsync(
             HyperVTarget target)
         {
-            _log.Step("Orchestrator", "Re-validating before collection", target.Name);
+            TargetValidationResult validation;
 
-            var validation =
-                await _targetValidator.ValidateAsync(
-                    target,
-                    cancellationToken);
+            if (target.Validation.IsFresh(ValidationReuseWindow))
+            {
+                // Just validated in the target manager: don't spend another PowerShell process
+                // and WinRM session per host repeating the same probe.
+                validation = target.Validation;
+                validation.Status = validation.IsCluster
+                    ? Core.Enums.TargetValidationStatus.ClusterReady
+                    : Core.Enums.TargetValidationStatus.Ready;
 
-            target.Validation = validation;
+                _log.Info("Orchestrator", "Validated recently; skipping re-validation", target.Name);
+            }
+            else
+            {
+                _log.Step("Orchestrator", "Validating before collection", target.Name);
+
+                validation =
+                    await _targetValidator.ValidateAsync(
+                        target,
+                        cancellationToken);
+
+                target.Validation = validation;
+            }
 
             if (!validation.CanCollect)
             {
@@ -218,28 +237,24 @@ public class CollectionOrchestrator
                 return;
             }
 
-            int completed;
+            CollectionProgress snapshot;
 
+            // One consistent read of the counters other workers are updating.
             lock (syncLock)
             {
-                completed =
-                    result.SuccessfulTargets +
-                    result.FailedTargets;
-            }
-
-            progress.Report(
-                new CollectionProgress
+                snapshot = new CollectionProgress
                 {
                     TotalTargets = targetList.Count,
-                    CompletedTargets = completed,
+                    CompletedTargets = result.SuccessfulTargets + result.FailedTargets,
                     FailedTargets = result.FailedTargets,
                     TotalHosts = result.TotalHosts,
-                    TotalVirtualMachines =
-                        result.TotalVirtualMachines,
+                    TotalVirtualMachines = result.TotalVirtualMachines,
                     CurrentTarget = target.Name,
-                    CurrentStage =
-                        target.Validation.Status.ToString()
-                });
+                    CurrentStage = target.Validation.Status.ToString()
+                };
+            }
+
+            progress.Report(snapshot);
         }
     }
 }

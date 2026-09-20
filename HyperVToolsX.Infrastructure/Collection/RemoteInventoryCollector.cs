@@ -407,6 +407,11 @@ public class RemoteInventoryCollector : IInventoryCollector
 
         package.ComputerName = computerName;
 
+        foreach (var warning in package.Warnings)
+        {
+            _log.Warn("Collection", $"Partial data - section skipped: {warning}", logTarget);
+        }
+
         return package;
     }
 
@@ -513,6 +518,7 @@ public class RemoteInventoryCollector : IInventoryCollector
                 HostStorage         = @()
                 OperatingSystems    = @()
                 Clusters            = @()
+                Warnings            = @()
                 Success             = $true
                 ErrorMessage        = ''
             }
@@ -574,6 +580,7 @@ public class RemoteInventoryCollector : IInventoryCollector
                     }
                 )
 
+                try {
                 # ============================================================
                 # HOST STORAGE
                 # ============================================================
@@ -598,7 +605,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('HOST STORAGE: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # OPERATING SYSTEM
                 # ============================================================
@@ -616,7 +628,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('OPERATING SYSTEM: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # VIRTUAL MACHINES
                 # ============================================================
@@ -669,6 +686,7 @@ public class RemoteInventoryCollector : IInventoryCollector
                             GuestStateIsolationType             = ToStr $_.GuestStateIsolationType
                             Notes                               = ToStr $_.Notes
                             State                               = ToStr $_.State
+                            StateId                             = [int]$_.State
                             DynamicMemoryEnabled                = ToBool $_.DynamicMemoryEnabled
                             MemoryMaximum                       = ToLong $_.MemoryMaximum
                             MemoryMinimum                       = ToLong $_.MemoryMinimum
@@ -681,7 +699,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('VIRTUAL MACHINES: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # PROCESSOR
                 # ============================================================
@@ -720,7 +743,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('PROCESSOR: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # MEMORY
                 # ============================================================
@@ -745,7 +773,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('MEMORY: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # NETWORK ADAPTERS
                 # ============================================================
@@ -779,7 +812,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('NETWORK ADAPTERS: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # VLAN
                 # ============================================================
@@ -823,7 +861,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         continue
                     }
                 }
+                }
+                catch {
+                    $result.Warnings += ('VLAN: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # CHECKPOINTS
                 # ============================================================
@@ -849,7 +892,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('CHECKPOINTS: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # INTEGRATION SERVICES
                 # ============================================================
@@ -877,7 +925,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('INTEGRATION SERVICES: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # VM STORAGE
                 # ============================================================
@@ -924,7 +977,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('VM STORAGE: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # VM DISKS
                 # ============================================================
@@ -950,17 +1008,22 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('VM DISKS: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # VHD
                 # ============================================================
                 $vhdPaths = @($disks | Where-Object { -not [string]::IsNullOrWhiteSpace($_.Path) } | Select-Object -ExpandProperty Path -Unique)
-                $result.Vhds = @()
+                $vhdList = [System.Collections.Generic.List[object]]::new()
 
                 foreach ($vhdPath in $vhdPaths) {
                     try {
                         Get-VHD -Path $vhdPath -ErrorAction Stop | ForEach-Object {
-                            $result.Vhds += [PSCustomObject]@{
+                            $vhdList.Add([PSCustomObject]@{
                                 HostName                = $hostName
                                 Path                    = ToStr $_.Path
                                 VhdFormat               = ToStr $_.VhdFormat
@@ -979,7 +1042,7 @@ public class RemoteInventoryCollector : IInventoryCollector
                                 DiskNumber              = ToStr $_.DiskNumber
                                 IsPMEMCompatible        = ToBool $_.IsPMEMCompatible
                                 AddressAbstractionType  = ToStr $_.AddressAbstractionType
-                            }
+                            })
                         }
                     }
                     catch {
@@ -987,6 +1050,13 @@ public class RemoteInventoryCollector : IInventoryCollector
                     }
                 }
 
+                $result.Vhds = $vhdList.ToArray()
+                }
+                catch {
+                    $result.Warnings += ('VHD: ' + $_.Exception.Message)
+                }
+
+                try {
                 # ============================================================
                 # REPLICATION
                 # ============================================================
@@ -1034,7 +1104,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                 catch {
                     $result.Replication = @()
                 }
+                }
+                catch {
+                    $result.Warnings += ('REPLICATION: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # DVD
                 # ============================================================
@@ -1060,7 +1135,12 @@ public class RemoteInventoryCollector : IInventoryCollector
                         }
                     }
                 )
+                }
+                catch {
+                    $result.Warnings += ('DVD: ' + $_.Exception.Message)
+                }
 
+                try {
                 # ============================================================
                 # CLUSTER
                 # ============================================================
@@ -1151,6 +1231,10 @@ public class RemoteInventoryCollector : IInventoryCollector
                     catch {
                         $result.Clusters = @()
                     }
+                }
+                }
+                catch {
+                    $result.Warnings += ('CLUSTER: ' + $_.Exception.Message)
                 }
 
                 $result.Success = $true

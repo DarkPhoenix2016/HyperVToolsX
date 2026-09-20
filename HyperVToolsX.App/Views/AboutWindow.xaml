@@ -60,12 +60,6 @@
                            Foreground="#333333"
                            Margin="0,4,0,0"/>
 
-                <TextBlock Text="BETA"
-                           FontSize="12"
-                           FontWeight="SemiBold"
-                           Foreground="#666666"
-                           Margin="0,8,0,0"/>
-
             </StackPanel>
 
         </Grid>
@@ -118,7 +112,7 @@
             <TextBlock x:Name="VersionText"
                        Grid.Row="1"
                        Grid.Column="1"
-                       Text="0.1.0-beta.1"
+                       Text="1.0.0"
                        Margin="0,0,0,8"/>
 
             <!-- Publisher -->

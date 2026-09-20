@@ -1,4 +1,4 @@
-using HyperVToolsX.Core.Cli;
+﻿using HyperVToolsX.Core.Cli;
 using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Core.Enums;
 using HyperVToolsX.Core.Models;
@@ -55,6 +55,56 @@ public class CommandLineTests
         Assert.Equal(SizeUnit.GB, o.SizeUnit);
         Assert.Equal("Default", o.Authentication);
         Assert.True(o.ToConnectionOptions().UseCurrentCredentials);
+    }
+
+    [Fact]
+    public void Parse_PasswordFile_ReadsFirstLine()
+    {
+        var file = Path.GetTempFileName();
+
+        try
+        {
+            File.WriteAllText(file, "from-file\nignored\n");
+
+            var options = CommandLineParser.Parse(["/host:HV01", "/export:a.xlsx", "/user:u", $"/passwordfile:{file}"]).Options!;
+
+            Assert.Equal("from-file", options.Password);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public void Parse_MissingPasswordFile_IsAnError()
+    {
+        var result = CommandLineParser.Parse(["/host:HV01", "/export:a.xlsx", "/user:u", @"/passwordfile:Z:\nope\pw.txt"]);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("/passwordfile"));
+    }
+
+    [Fact]
+    public void Parse_OperationTimeoutDefaultsAndOverrides()
+    {
+        var defaulted = CommandLineParser.Parse(["/host:HV01", "/export:a.xlsx"]).Options!;
+        var custom = CommandLineParser.Parse(["/host:HV01", "/export:a.xlsx", "/optimeout:90"]).Options!;
+
+        Assert.Equal(300, defaulted.ToConnectionOptions().OperationTimeoutSeconds);
+        Assert.Equal(90, custom.ToConnectionOptions().OperationTimeoutSeconds);
+    }
+
+    [Theory]
+    [InlineData(30, 300, 360)]
+    [InlineData(0, 60, 90)]
+    [InlineData(30, 0, 360)]   // 0 never means "unbounded"
+    public void DeadlineIsAlwaysBounded(int open, int operation, int expectedSeconds)
+    {
+        var deadline = HyperVToolsX.Infrastructure.Remoting.RemoteScriptRunner.DeadlineFor(
+            new RemoteConnectionOptions { TimeoutSeconds = open, OperationTimeoutSeconds = operation });
+
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds), deadline);
     }
 
     [Theory]

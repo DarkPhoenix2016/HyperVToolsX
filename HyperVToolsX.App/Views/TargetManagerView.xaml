@@ -546,6 +546,21 @@
 
                                     <CheckBox x:Name="SkipCnHostnameCheckBox"
                                               Content="Skip CN (hostname) check"/>
+
+                                    <TextBlock Text="Skipping these checks weakens TLS: the host's identity is not fully verified."
+                                               Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,7.5,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- TrustedHosts -->
+                            <Border Style="{StaticResource Card}" Padding="16.5,13.5" Margin="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="TrustedHosts" Style="{StaticResource SectionTitle}"/>
+                                    <TextBlock Text="Only needed for bare-IP targets over HTTP (no SSL) that have no DNS name."
+                                               Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,1.5,0,10.5"/>
+
+                                    <CheckBox x:Name="AllowTrustedHostsCheckBox"
+                                              Content="Allow adding the target IP to this machine's WinRM TrustedHosts (persistent)"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

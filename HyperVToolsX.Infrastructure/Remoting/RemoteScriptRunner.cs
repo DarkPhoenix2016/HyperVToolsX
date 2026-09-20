@@ -13,12 +13,18 @@ namespace HyperVToolsX.Infrastructure.Remoting;
 /// </summary>
 public class RemoteScriptRunner
 {
-    public const string PasswordEnvironmentVariable = "HVTX_REMOTE_PWD";
-
     private readonly PowerShellExecutor _powerShell;
     private readonly ConnectionNameResolver _resolver;
     private readonly TrustedHostsManager _trustedHosts;
     private readonly ILiveLog _log;
+
+    /// <summary>
+    /// Most powershell.exe processes this runner keeps alive at once, across every host and cluster node
+    /// (each is ~60-100 MB). Runs beyond it wait their turn; the wait does not count against the run's deadline.
+    /// </summary>
+    public const int MaxConcurrentRuns = 8;
+
+    private readonly SemaphoreSlim _processGate = new(MaxConcurrentRuns, MaxConcurrentRuns);
 
     // Keeps stray WARNING/progress text out of the JSON on stdout.
     private const string OutputPreamble =
@@ -50,6 +56,51 @@ public class RemoteScriptRunner
             throw new ArgumentException("Computer name is required.", nameof(computerName));
         }
 
+        await _processGate.WaitAsync(cancellationToken);
+
+        try
+        {
+            // Hard deadline for the whole call (DNS, TrustedHosts, connect, run). WinRM's own
+            // timeouts don't cover a host that connects and then stops responding.
+            var deadline = DeadlineFor(Options);
+
+            using var deadlineSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            deadlineSource.CancelAfter(deadline);
+
+            try
+            {
+                return await RunCoreAsync(computerName, script, deadlineSource.Token);
+            }
+            catch (OperationCanceledException)
+                when (!cancellationToken.IsCancellationRequested && deadlineSource.IsCancellationRequested)
+            {
+                _log.Error("Remoting", $"Timed out after {deadline.TotalSeconds:N0}s; the PowerShell process was stopped", computerName);
+
+                throw new TimeoutException(
+                    $"'{computerName}' did not finish within {deadline.TotalSeconds:N0} seconds and was stopped.");
+            }
+        }
+        finally
+        {
+            _processGate.Release();
+        }
+    }
+
+    /// <summary>Open timeout + operation timeout + slack for process start-up and output transfer.</summary>
+    public static TimeSpan DeadlineFor(RemoteConnectionOptions options)
+    {
+        var operation = options.OperationTimeoutSeconds > 0
+            ? options.OperationTimeoutSeconds
+            : RemoteConnectionOptions.DefaultOperationTimeoutSeconds;
+
+        return TimeSpan.FromSeconds(Math.Max(options.TimeoutSeconds, 0) + operation + 30);
+    }
+
+    private async Task<string> RunCoreAsync(
+        string computerName,
+        string script,
+        CancellationToken cancellationToken)
+    {
         script = OutputPreamble + script;
 
         if (IsLocalTarget(computerName))
@@ -72,6 +123,8 @@ public class RemoteScriptRunner
             $"open timeout={options.TimeoutSeconds}s, skipCA={options.SkipCaCertificateCheck}, skipCN={options.SkipCnCheck}",
             computerName);
 
+        ValidateSecurity(options);
+
         var connectionName = await ResolveConnectionNameAsync(
             computerName.Trim(),
             options,
@@ -81,21 +134,11 @@ public class RemoteScriptRunner
 
         var command = BuildInvokeCommand(connectionName, script, options);
 
-        Dictionary<string, string>? environment = null;
-
-        if (!options.UseCurrentCredentials)
-        {
-            environment = new Dictionary<string, string>
-            {
-                [PasswordEnvironmentVariable] = options.Password
-            };
-        }
-
         return await _powerShell.ExecuteWindowsPowerShellAsync(
             command,
             cancellationToken,
-            environment,
-            computerName);
+            logTarget: computerName,
+            secret: options.UseCurrentCredentials ? null : options.Password);
     }
 
     private async Task<string> ResolveConnectionNameAsync(
@@ -137,11 +180,40 @@ public class RemoteScriptRunner
 
         if (!options.UseSsl)
         {
+            if (!options.AllowTrustedHostsChange)
+            {
+                throw new InvalidOperationException(
+                    $"'{computerName}' is a bare IP with no verifiable hostname, so WinRM would need it in this " +
+                    "machine's TrustedHosts list (a persistent, machine-wide change that is not made without " +
+                    "your consent). Use the host's name, enable HTTPS (SSL), or allow the TrustedHosts change " +
+                    "in Connection Settings (CLI: /trusthosts).");
+            }
+
             // HTTPS validates the certificate instead of TrustedHosts.
             await _trustedHosts.EnsureTrustedAsync(resolved.Value, cancellationToken);
         }
 
         return resolved.Value;
+    }
+
+    /// <summary>Rejects settings that would send credentials unprotected, and flags weakened TLS checks.</summary>
+    private void ValidateSecurity(RemoteConnectionOptions options)
+    {
+        if (!options.UseSsl
+            && !options.UseCurrentCredentials
+            && options.Authentication.Equals("Basic", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Basic authentication over HTTP would send the password unencrypted. " +
+                "Enable HTTPS (SSL) or use Negotiate/Kerberos.");
+        }
+
+        if (options.SkipCaCertificateCheck || options.SkipCnCheck)
+        {
+            _log.Warn(
+                "Remoting",
+                "TLS certificate validation is weakened (skip CA/CN check): the remote host's identity is not fully verified");
+        }
     }
 
     private static string BuildInvokeCommand(
@@ -154,6 +226,12 @@ public class RemoteScriptRunner
             ?? throw new InvalidOperationException(
                 $"Unsupported authentication method '{options.Authentication}'.");
 
+        // The script is embedded in a single-quoted here-string, which a line starting with '@ would end early.
+        if (script.Contains("\n'@", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Script contains a here-string terminator (a line starting with '@).");
+        }
+
         var extra = new System.Text.StringBuilder();
 
         if (!options.UseCurrentCredentials)
@@ -164,11 +242,9 @@ public class RemoteScriptRunner
                     "A username is required when not using the current Windows credentials.");
             }
 
-            // Password is read from the environment and removed immediately;
-            // it is never part of the script text.
-            extra.AppendLine($"$securePwd = ConvertTo-SecureString $env:{PasswordEnvironmentVariable} -AsPlainText -Force");
-            extra.AppendLine($"Remove-Item Env:\\{PasswordEnvironmentVariable} -ErrorAction SilentlyContinue");
-            extra.AppendLine($"$invokeParams['Credential'] = New-Object System.Management.Automation.PSCredential('{Escape(options.Username.Trim())}', $securePwd)");
+            // $hvtxSecret is the password as a SecureString, delivered over the child's private stdin
+            // pipe by PowerShellExecutor. It is never part of the script text.
+            extra.AppendLine($"$invokeParams['Credential'] = New-Object System.Management.Automation.PSCredential('{Escape(options.Username.Trim())}', $hvtxSecret)");
         }
 
         if (!authentication.Equals("Default", StringComparison.OrdinalIgnoreCase))
@@ -202,6 +278,8 @@ public class RemoteScriptRunner
         {
             sessionOptions.Add("-SkipCNCheck");
         }
+
+        sessionOptions.Add($"-OperationTimeout {(options.OperationTimeoutSeconds > 0 ? options.OperationTimeoutSeconds : RemoteConnectionOptions.DefaultOperationTimeoutSeconds) * 1000}");
 
         if (sessionOptions.Count > 0)
         {
@@ -242,7 +320,9 @@ public class RemoteScriptRunner
             UseSsl = source.UseSsl,
             Port = source.Port,
             TimeoutSeconds = source.TimeoutSeconds,
+            OperationTimeoutSeconds = source.OperationTimeoutSeconds,
             SkipCaCertificateCheck = source.SkipCaCertificateCheck,
-            SkipCnCheck = source.SkipCnCheck
+            SkipCnCheck = source.SkipCnCheck,
+            AllowTrustedHostsChange = source.AllowTrustedHostsChange
         };
 }

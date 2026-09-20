@@ -31,7 +31,7 @@ public partial class AboutWindow : Window
             version = assembly.GetName().Version?.ToString();
         }
 
-        VersionText.Text = version ?? "0.1.0-beta.1";
+        VersionText.Text = version ?? "1.0.0";
     }
 
     private void GitHubTextBlock_MouseLeftButtonUp(

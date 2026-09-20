@@ -13,10 +13,10 @@
     <RootNamespace>HyperVToolsX.App</RootNamespace>
 
     <!-- Version -->
-    <Version>0.1.0-beta.1</Version>
-    <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.1.0.0</FileVersion>
-    <InformationalVersion>0.1.0-beta.1</InformationalVersion>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
 
     <!-- Publisher / Windows file information -->
     <Product>HyperVToolsX</Product>
@@ -33,9 +33,9 @@
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 
-    <!-- Keep disabled for beta -->
+    <!-- ReadyToRun precompiles the app for faster start-up; trimming stays off (WPF/reflection-heavy) -->
     <PublishTrimmed>false</PublishTrimmed>
-    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishReadyToRun>true</PublishReadyToRun>
 
     <!-- Release distribution -->
     <DebugType>None</DebugType>

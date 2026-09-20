@@ -6,12 +6,12 @@
 
 **Hyper-V Inventory & Management Tool — an RVTools-style desktop app for Microsoft Hyper-V.**
 
-![Version](https://img.shields.io/badge/version-0.1.0--beta.1-orange)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4)
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078D4)
 ![UI](https://img.shields.io/badge/UI-WPF-blueviolet)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Status](https://img.shields.io/badge/status-beta-yellow)
+![Status](https://img.shields.io/badge/status-stable-brightgreen)
 
 </div>
 
@@ -242,12 +242,15 @@ the file name is generated for you.
 | `/export:<folder>` | **Required.** Folder for the output (created if missing). Every host gets its own file |
 | `/type:<format>` | **Required with a folder.** `xlsx` or `csv` |
 | `/user:<username>` | Username (`domain\user`). Without it the current Windows user is used |
-| `/password:<pwd>` | Password (use with `/user`) |
+| `/password:<pwd>` | Password (use with `/user`). Visible in the process list; prefer `/passwordfile` |
+| `/passwordfile:<file>` | Read the password from the first line of a file (protect it with an ACL). If neither this nor `/password` is given, the `HVTX_PASSWORD` environment variable is used |
 | `/auth:<method>` | `Default`, `Negotiate`, `Kerberos`, `Basic`, `CredSSP` |
 | `/ssl` | Use HTTPS (port 5986) |
 | `/port:<number>` | Custom port (default 5985/5986) |
-| `/skipca` / `/skipcn` | Skip the CA certificate / CN hostname check |
+| `/skipca` / `/skipcn` | Skip the CA certificate / CN hostname check (weakens TLS validation; use only for self-signed lab certificates) |
+| `/trusthosts` | Allow adding a bare-IP target to this machine's WinRM TrustedHosts. Without it, IP targets that would need TrustedHosts are refused; prefer hostnames or `/ssl` |
 | `/timeout:<secs>` | Connection timeout (default 30) |
+| `/optimeout:<secs>` | Maximum run time of one remote script per host; the host is failed and its process killed when exceeded (default 300) |
 | `/unit:<unit>` | Unit for exported sizes: `Bytes`, `KB`, `MB`, `GB`, `TB`, `PB` (default `GB`) |
 | `/silent` | Suppress all output (for scheduled tasks) |
 | `/?` | Show the help |
@@ -410,29 +413,42 @@ dotnet test HyperVToolsX.Tests
 
 ### Publishing
 
-The app project is configured for a self-contained, single-file, `win-x64` build (trimming and ReadyToRun are
-disabled for the beta):
+The app project is configured for a self-contained, single-file, ReadyToRun `win-x64` build (trimming is
+disabled):
 
 ```powershell
-dotnet publish HyperVToolsX.App -c Release -r win-x64
+dotnet publish HyperVToolsX.App -c Release -p:PublishProfile=FolderProfile
 ```
 
-Publish profiles are available under `HyperVToolsX.App/Properties/PublishProfiles/`.
+Output goes to `HyperVToolsX.App/bin/publish/win-x64/`. Before distributing, Authenticode-sign `HyperVToolsX.exe`
+(the app runs elevated, so an unsigned build triggers SmartScreen and UAC "unknown publisher" warnings):
+
+```powershell
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a HyperVToolsX.App\bin\publish\win-x64\HyperVToolsX.exe
+```
+
+Install into a directory only administrators can write (for example `C:\Program Files\HyperVToolsX`): the app runs
+elevated and loads the `Templates` folder beside the executable.
 
 ## Security notes
 
-- Explicit passwords are passed to the child PowerShell process through the `HVTX_REMOTE_PWD` environment variable,
-  are never written into script text, and must never be logged.
+- Scripts are delivered to the child Windows PowerShell process over its stdin pipe, never through a file in a
+  user-writable temp folder. Explicit passwords travel the same private pipe (as a `SecureString`), so they are not
+  in script text, the environment, files or the command line, and must never be logged. The file log also redacts
+  `password=`-style text.
 - Authentication values are validated against an allow-list rather than interpolated into scripts; only a parsed IP
   address is ever embedded in the TrustedHosts script.
-- TrustedHosts changes are append-only. Prefer hostnames with Kerberos, or HTTPS with valid certificates, over
+- TrustedHosts changes are append-only and only made when you opt in (Connection Settings, or `/trusthosts`).
+  Basic authentication over HTTP is refused.
+- Every remote run has a hard deadline (`/optimeout`, default 300 s); a host that stops responding is failed and its
+  PowerShell process is killed.
+- Logs are written to `%LOCALAPPDATA%\HyperVToolsX\logs` (14 days retained, 10 MB per day). Prefer hostnames with Kerberos, or HTTPS with valid certificates, over
   TrustedHosts and the certificate-skip options.
 - The application requires administrator elevation.
 
 ## Project status and roadmap
 
-**Beta (`0.1.0-beta.1`).** The collection pipeline and the inventory tabs are in place; the focus is correctness
-before scaling out.
+**Release (`1.0.0`).** The collection pipeline and the inventory tabs are in place. See the [changelog](CHANGELOG.md) for version history.
 
 - [x] Local and remote (WinRM) collection with staged validation
 - [x] Cluster discovery and cluster-aware roll-up

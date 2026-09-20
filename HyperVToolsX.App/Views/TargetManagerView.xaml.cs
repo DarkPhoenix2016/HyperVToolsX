@@ -73,6 +73,10 @@ public partial class TargetManagerView : UserControl
 
             // Closing the window mid-run must not leave workers running.
             _operationCts?.Cancel();
+
+            // Don't keep the password in memory once the window is gone.
+            _connectionOptions.Password = string.Empty;
+            PasswordBox.Clear();
         };
 
         _elapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -862,6 +866,13 @@ public partial class TargetManagerView : UserControl
             return false;
         }
 
+        // The password is wiped whenever the Target Manager closes, so it has to be re-entered.
+        if (!useCurrent && PasswordBox.Password.Length == 0)
+        {
+            ShowError("Enter the password (it is cleared whenever this window is closed), or use the current Windows credentials.", "Connection Settings");
+            return false;
+        }
+
         _connectionOptions.UseCurrentCredentials = useCurrent;
         _connectionOptions.Username = useCurrent ? string.Empty : UsernameTextBox.Text.Trim();
         _connectionOptions.Password = useCurrent ? string.Empty : PasswordBox.Password;
@@ -873,6 +884,7 @@ public partial class TargetManagerView : UserControl
         _connectionOptions.TimeoutSeconds = timeout;
         _connectionOptions.SkipCaCertificateCheck = SkipCaCertificateCheckBox.IsChecked == true;
         _connectionOptions.SkipCnCheck = SkipCnHostnameCheckBox.IsChecked == true;
+        _connectionOptions.AllowTrustedHostsChange = AllowTrustedHostsCheckBox.IsChecked == true;
 
         return true;
     }

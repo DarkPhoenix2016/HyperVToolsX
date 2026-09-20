@@ -7,6 +7,21 @@ namespace HyperVToolsX.Infrastructure.PowerShellEngine;
 
 public class PowerShellExecutor
 {
+    private const string StdinBootstrap =
+        "$hvtxIn = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8); " +
+        "& ([scriptblock]::Create($hvtxIn.ReadToEnd()))";
+
+    // Same, but the first stdin line is a base64 secret that becomes the SecureString $hvtxSecret
+    // for the script. The secret never touches disk, the environment or the command line.
+    private const string StdinBootstrapWithSecret =
+        "$ErrorActionPreference = 'Stop'; " +
+        "$hvtxIn = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8); " +
+        "$hvtxPlain = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($hvtxIn.ReadLine())); " +
+        "if ($hvtxPlain.Length -eq 0) { $hvtxSecret = New-Object System.Security.SecureString } " +
+        "else { $hvtxSecret = ConvertTo-SecureString $hvtxPlain -AsPlainText -Force }; " +
+        "$hvtxPlain = $null; " +
+        "& ([scriptblock]::Create($hvtxIn.ReadToEnd()))";
+
     private readonly ILiveLog _log;
 
     public PowerShellExecutor(ILiveLog? log = null)
@@ -100,11 +115,17 @@ public class PowerShellExecutor
     /// is responsible for having the script read and then clear these
     /// (Remove-Item Env:\Name) as soon as they're used.
     /// </param>
+    /// <param name="secret">
+    /// Optional secret (e.g. a password) handed to the script as the SecureString
+    /// <c>$hvtxSecret</c> through the private stdin pipe: not in the script text, on disk, in the
+    /// environment or on the command line. Never logged.
+    /// </param>
     public async Task<string> ExecuteWindowsPowerShellAsync(
     string script,
     CancellationToken cancellationToken = default,
     IReadOnlyDictionary<string, string>? environmentVariables = null,
-    string? logTarget = null)
+    string? logTarget = null,
+    string? secret = null)
     {
         if (string.IsNullOrWhiteSpace(script))
         {
@@ -120,151 +141,155 @@ public class PowerShellExecutor
             throw new FileNotFoundException("Windows PowerShell 5.1 was not found.", powershellPath);
         }
 
-        var tempDirectory = Path.Combine(Path.GetTempPath(), "HyperVToolsX", "PowerShell");
-        Directory.CreateDirectory(tempDirectory);
-
-        var scriptPath = Path.Combine(tempDirectory, $"HyperVToolsX_{Guid.NewGuid():N}.ps1");
-
-        try
+        var startInfo = new ProcessStartInfo
         {
-            await File.WriteAllTextAsync(
-                scriptPath,
-                script,
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
-                cancellationToken);
+            FileName = powershellPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
+        };
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = powershellPath,
-                Arguments = $"-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{scriptPath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-
-            if (environmentVariables != null)
-            {
-                foreach (var (key, value) in environmentVariables)
-                {
-                    startInfo.EnvironmentVariables[key] = value;
-                }
-            }
-
-            using var process = new Process
-            {
-                StartInfo = startInfo,
-                EnableRaisingEvents = true
-            };
-
-            var stopwatch = Stopwatch.StartNew();
-
-            if (!process.Start())
-            {
-                throw new InvalidOperationException("Unable to start Windows PowerShell 5.1.");
-            }
-
-            // Only variable NAMES are logged, never their values.
-            _log.Step(
-                "PowerShell",
-                $"Started powershell.exe 5.1 (pid {process.Id}), script {script.Length:N0} chars" +
-                (environmentVariables is { Count: > 0 }
-                    ? $", env: {string.Join(", ", environmentVariables.Keys)}"
-                    : string.Empty),
-                logTarget);
-
-            using var registration = cancellationToken.Register(() =>
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-                catch
-                {
-                    // Process may already have exited.
-                }
-            });
-
-            var standardOutputTask = process.StandardOutput.ReadToEndAsync();
-            var standardErrorTask = process.StandardError.ReadToEndAsync();
-
-            try
-            {
-                await process.WaitForExitAsync(cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                try
-                {
-                    if (!process.HasExited)
-                    {
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-                catch
-                {
-                    // Process may already have exited.
-                }
-
-                throw;
-            }
-
-            var standardOutput = await standardOutputTask;
-            var standardError = await standardErrorTask;
-
-            stopwatch.Stop();
-
-            if (cancellationToken.IsCancellationRequested)
-            {
-                _log.Warn("PowerShell", $"Process cancelled after {stopwatch.Elapsed.TotalSeconds:F1}s", logTarget);
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            _log.Info(
-                "PowerShell",
-                $"Process exited with code {process.ExitCode} after {stopwatch.Elapsed.TotalSeconds:F1}s " +
-                $"(stdout {standardOutput.Length:N0} chars, stderr {standardError.Length:N0} chars)",
-                logTarget);
-
-            if (process.ExitCode != 0)
-            {
-                _log.Error(
-                    "PowerShell",
-                    $"stderr: {Truncate(standardError, 600)}",
-                    logTarget);
-
-                var error = string.IsNullOrWhiteSpace(standardError)
-                    ? $"Windows PowerShell exited with code {process.ExitCode}."
-                    : standardError.Trim();
-
-                throw new InvalidOperationException(error);
-            }
-
-            if (string.IsNullOrWhiteSpace(standardOutput))
-            {
-                throw new InvalidOperationException("Windows PowerShell returned no output.");
-            }
-
-            return standardOutput.Trim();
+        // The script travels over stdin, never through a file: a file in %TEMP% could be
+        // swapped by any unelevated process of the same user before this elevated
+        // process runs it. The bootstrap reads stdin as UTF-8 regardless of console codepage.
+        foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", secret is null ? StdinBootstrap : StdinBootstrapWithSecret })
+        {
+            startInfo.ArgumentList.Add(argument);
         }
-        finally
+
+        // The in-process PowerShell SDK (PowerShell 7) rewrites PSModulePath for this process. Windows
+        // PowerShell 5.1 inheriting that can no longer autoload its own modules (Security, Hyper-V...),
+        // so let the child rebuild its default module path.
+        startInfo.EnvironmentVariables.Remove("PSModulePath");
+
+        if (environmentVariables != null)
+        {
+            foreach (var (key, value) in environmentVariables)
+            {
+                startInfo.EnvironmentVariables[key] = value;
+            }
+        }
+
+        using var process = new Process
+        {
+            StartInfo = startInfo,
+            EnableRaisingEvents = true
+        };
+
+        var stopwatch = Stopwatch.StartNew();
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Unable to start Windows PowerShell 5.1.");
+        }
+
+        // Only variable NAMES are logged, never their values.
+        _log.Step(
+            "PowerShell",
+            $"Started powershell.exe 5.1 (pid {process.Id}), script {script.Length:N0} chars" +
+            (environmentVariables is { Count: > 0 }
+                ? $", env: {string.Join(", ", environmentVariables.Keys)}"
+                : string.Empty) +
+            (secret is null ? string.Empty : ", secret via stdin"),
+            logTarget);
+
+        using var registration = cancellationToken.Register(() =>
         {
             try
             {
-                if (File.Exists(scriptPath))
+                if (!process.HasExited)
                 {
-                    File.Delete(scriptPath);
+                    process.Kill(entireProcessTree: true);
                 }
             }
             catch
             {
-                // Cleanup failure should not hide the actual result.
+                // Process may already have exited.
             }
+        });
+
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
+
+        try
+        {
+            if (secret is not null)
+            {
+                await process.StandardInput.WriteLineAsync(
+                    Convert.ToBase64String(Encoding.UTF8.GetBytes(secret)).AsMemory(),
+                    cancellationToken);
+            }
+
+            await process.StandardInput.WriteAsync(script.AsMemory(), cancellationToken);
+            process.StandardInput.Close();
         }
+        catch (IOException)
+        {
+            // The process exited before reading everything; its exit code and stderr explain why.
+        }
+
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch
+            {
+                // Process may already have exited.
+            }
+
+            throw;
+        }
+
+        var standardOutput = await standardOutputTask;
+        var standardError = await standardErrorTask;
+
+        stopwatch.Stop();
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            _log.Warn("PowerShell", $"Process cancelled after {stopwatch.Elapsed.TotalSeconds:F1}s", logTarget);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        _log.Info(
+            "PowerShell",
+            $"Process exited with code {process.ExitCode} after {stopwatch.Elapsed.TotalSeconds:F1}s " +
+            $"(stdout {standardOutput.Length:N0} chars, stderr {standardError.Length:N0} chars)",
+            logTarget);
+
+        if (process.ExitCode != 0)
+        {
+            _log.Error(
+                "PowerShell",
+                $"stderr: {Truncate(standardError, 600)}",
+                logTarget);
+
+            var error = string.IsNullOrWhiteSpace(standardError)
+                ? $"Windows PowerShell exited with code {process.ExitCode}."
+                : standardError.Trim();
+
+            throw new InvalidOperationException(error);
+        }
+
+        if (string.IsNullOrWhiteSpace(standardOutput))
+        {
+            throw new InvalidOperationException("Windows PowerShell returned no output.");
+        }
+
+        return standardOutput.Trim();
     }
 
     private static string Truncate(string value, int max)

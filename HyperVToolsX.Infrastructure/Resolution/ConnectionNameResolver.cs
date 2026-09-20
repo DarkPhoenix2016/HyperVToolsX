@@ -14,7 +14,7 @@ public sealed record ConnectionName(string Value, bool IsVerifiedHostname);
 /// </summary>
 public class ConnectionNameResolver
 {
-    public async Task<ConnectionName> ResolveAsync(
+    public virtual async Task<ConnectionName> ResolveAsync(
         string target,
         CancellationToken cancellationToken = default)
     {

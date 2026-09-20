@@ -32,6 +32,15 @@ public class TargetValidationResult
             ? CompletedAt.Value - StartedAt
             : null;
 
+    /// <summary>
+    /// True when this target's Hyper-V connection was verified within <paramref name="maxAge"/>, so
+    /// collection can skip repeating the DNS/ping/WinRM probe (a whole extra PowerShell process per host).
+    /// </summary>
+    public bool IsFresh(TimeSpan maxAge) =>
+        HyperVConnectionSucceeded
+        && CompletedAt.HasValue
+        && DateTime.Now - CompletedAt.Value <= maxAge;
+
     public bool CanCollect =>
         Status == TargetValidationStatus.Ready ||
         Status == TargetValidationStatus.ClusterReady;

@@ -65,6 +65,9 @@ public class HyperVVirtualMachine
     public string Notes { get; set; } = string.Empty;
     public string State { get; set; } = string.Empty;
 
+    /// <summary>Numeric value of the Hyper-V VMState enum (2 = Running, 3 = Off, ...).</summary>
+    public int StateId { get; set; }
+
     public bool DynamicMemoryEnabled { get; set; }
     public long MemoryMaximum { get; set; }
     public long MemoryMinimum { get; set; }

@@ -249,7 +249,7 @@ internal static class CommandLineRunner
 
         var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
             ?? assembly.GetName().Version?.ToString()
-            ?? "0.1.0";
+            ?? "1.0.0";
 
         // Drop the "+commit" build metadata.
         var plus = version.IndexOf('+');
@@ -265,6 +265,9 @@ internal static class CommandLineRunner
 
         public void Write(LiveLogLevel level, string source, string message, string? target = null)
         {
+            // The file log gets everything (it is the record for scheduled runs); the console only warnings and errors.
+            App.FileLog.Write(DateTime.Now, level.ToString().ToUpperInvariant(), source, target, message);
+
             if (_silent || level < LiveLogLevel.Warning)
             {
                 return;

@@ -42,4 +42,7 @@ public class RemoteInventoryPackage
     public bool Success { get; set; }
 
     public string ErrorMessage { get; set; } = string.Empty;
+
+    /// <summary>Sections the script could not collect (the rest of the host's data is still valid).</summary>
+    public List<string> Warnings { get; set; } = [];
 }

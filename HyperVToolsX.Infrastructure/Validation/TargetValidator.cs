@@ -141,44 +141,39 @@ public class TargetValidator : ITargetValidator
 
             using var ping = new Ping();
 
-            PingReply pingReply;
+            // Many production hosts and firewalls drop ICMP while WinRM works fine, so a failed
+            // ping is reported but does not stop validation: the WinRM check below decides.
+            var pingNote = string.Empty;
 
             try
             {
-                pingReply =
+                var pingReply =
                     await ping.SendPingAsync(
                         targetName,
                         3000);
+
+                if (pingReply.Status == IPStatus.Success)
+                {
+                    result.PingSucceeded = true;
+
+                    _log.Info("Validation", $"Ping OK ({pingReply.RoundtripTime} ms)", targetName);
+                }
+                else
+                {
+                    pingNote = $" (ping: {pingReply.Status})";
+                }
             }
             catch (PingException ex)
             {
-                result.Status =
-                    TargetValidationStatus.PingFailed;
-
-                result.ErrorMessage =
-                    $"Ping failed for '{targetName}'. " +
-                    $"Error: {ex.Message}";
-
-                return Complete(result);
+                pingNote = $" (ping: {ex.Message})";
             }
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (pingReply.Status != IPStatus.Success)
+            if (!result.PingSucceeded)
             {
-                result.Status =
-                    TargetValidationStatus.PingFailed;
-
-                result.ErrorMessage =
-                    $"Ping failed for '{targetName}'. " +
-                    $"Status: {pingReply.Status}";
-
-                return Complete(result);
+                _log.Warn("Validation", $"Ping failed{pingNote}; continuing, WinRM decides", targetName);
             }
-
-            result.PingSucceeded = true;
-
-            _log.Info("Validation", $"Ping OK ({pingReply.RoundtripTime} ms)", targetName);
 
             // =========================================================
             // 3. HYPER-V CONNECTIVITY
@@ -218,7 +213,7 @@ public class TargetValidator : ITargetValidator
 
                 result.ErrorMessage =
                     $"Unable to connect to Hyper-V host " +
-                    $"'{targetName}'. Error: {ex.Message}";
+                    $"'{targetName}'. Error: {ex.Message}{pingNote}";
 
                 return Complete(result);
             }
@@ -243,10 +238,10 @@ public class TargetValidator : ITargetValidator
                     TargetValidationStatus.ConnectionFailed;
 
                 result.ErrorMessage =
-                    string.IsNullOrWhiteSpace(
+                    (string.IsNullOrWhiteSpace(
                         remoteResult.ErrorMessage)
                         ? $"Unable to connect to Hyper-V host '{targetName}'."
-                        : remoteResult.ErrorMessage;
+                        : remoteResult.ErrorMessage) + pingNote;
 
                 return Complete(result);
             }
@@ -481,11 +476,6 @@ $result |
         if (!result.NameResolved)
         {
             return TargetValidationStatus.NameResolutionFailed;
-        }
-
-        if (!result.PingSucceeded)
-        {
-            return TargetValidationStatus.PingFailed;
         }
 
         if (!result.HyperVConnectionSucceeded)

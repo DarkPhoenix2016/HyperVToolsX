@@ -108,16 +108,6 @@
                                    FontSize="16"
                                    FontWeight="Bold"
                                    VerticalAlignment="Center"/>
-                        <Border Background="#FFC93C"
-                                CornerRadius="6"
-                                Margin="12,2,0,0"
-                                Padding="9,3"
-                                VerticalAlignment="Center">
-                            <TextBlock Text="BETA"
-                                       Foreground="#4A3500"
-                                       FontSize="11"
-                                       FontWeight="Bold"/>
-                        </Border>
                     </StackPanel>
                     <TextBlock Text="Hyper-V Inventory &amp; Documentation Tool"
                                Style="{StaticResource MutedText}"
@@ -435,7 +425,9 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
-                            <DataGridTextColumn Header="IPv4 Address" Binding="{Binding IPv4Addresses}" SortMemberPath="IPv4Addresses" Width="150"/>
+                            <DataGridTextColumn Header="Generation" Binding="{Binding Generation}" SortMemberPath="Generation" Width="95"/>
+                            <DataGridTextColumn Header="vCPUs" Binding="{Binding ProcessorCount}" SortMemberPath="ProcessorCount" Width="75"/>
+                            <DataGridTextColumn Header="Memory Startup" Binding="{Binding MemoryStartup, Converter={StaticResource ByteSizeConverter}}" SortMemberPath="MemoryStartup" Width="130"/>
 
                             <DataGridTemplateColumn Header="CPU Usage" SortMemberPath="CpuUsage" ClipboardContentBinding="{Binding CpuUsageText}" Width="110">
                                 <DataGridTemplateColumn.CellTemplate>
@@ -449,10 +441,8 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
-                            <DataGridTextColumn Header="Processor Count" Binding="{Binding ProcessorCount}" SortMemberPath="ProcessorCount" Width="115"/>
-                            <DataGridTextColumn Header="Memory Status" Binding="{Binding MemoryStatus}" SortMemberPath="MemoryStatus" Width="115"/>
 
-                            <DataGridTemplateColumn Header="Memory Usage" SortMemberPath="MemoryUsagePercent" ClipboardContentBinding="{Binding MemoryUsageText}" Width="170">
+                            <DataGridTemplateColumn Header="Memory Usage (% of startup)" SortMemberPath="MemoryUsagePercent" ClipboardContentBinding="{Binding MemoryUsageText}" Width="190">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <StackPanel VerticalAlignment="Center">
@@ -465,8 +455,18 @@
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
 
+                            <DataGridTextColumn Header="Checkpoints" Binding="{Binding CheckpointCount}" SortMemberPath="CheckpointCount" Width="105"/>
                             <DataGridTextColumn Header="Uptime" Binding="{Binding UptimeText}" SortMemberPath="Uptime" Width="100"/>
                             <DataGridTextColumn Header="Boot Time" Binding="{Binding BootTimeText}" SortMemberPath="BootTime" Width="150"/>
+
+                            <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" SortMemberPath="Notes" Width="240"/>
+                            <DataGridTextColumn Header="NIC Name" Binding="{Binding NicNames}" SortMemberPath="NicNames" Width="170"/>
+                            <DataGridTextColumn Header="Switch Name" Binding="{Binding SwitchNames}" SortMemberPath="SwitchNames" Width="150"/>
+                            <DataGridTextColumn Header="IP Addresses" Binding="{Binding IPv4Addresses}" SortMemberPath="IPv4Addresses" Width="180"/>
+                            <DataGridTextColumn Header="MAC Address" Binding="{Binding MacAddresses}" SortMemberPath="MacAddresses" Width="190"/>
+                            <DataGridTextColumn Header="VLAN Mode" Binding="{Binding VlanModes}" SortMemberPath="VlanModes" Width="110"/>
+                            <DataGridTextColumn Header="VLAN List" Binding="{Binding VlanLists}" SortMemberPath="VlanLists" Width="130"/>
+                            <DataGridTextColumn Header="Storage Paths" Binding="{Binding StoragePaths}" SortMemberPath="StoragePaths" Width="420"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </Border>
