@@ -4,7 +4,7 @@
 
 # HyperVToolsX
 
-**Hyper-V Inventory & Management Tool — an RVTools-style desktop app for Microsoft Hyper-V.**
+**Hyper-V Inventory & Documentations Tool — an RVTools-style desktop app for Microsoft Hyper-V.**
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4)
