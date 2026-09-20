@@ -1,4 +1,5 @@
 ﻿using HyperVToolsX.App.Converters;
+using HyperVToolsX.App.ViewModels;
 using HyperVToolsX.App.Views;
 using HyperVToolsX.Core.Collection;
 using HyperVToolsX.Core.Enums;
@@ -16,7 +17,9 @@ using HyperVToolsX.Infrastructure.Templates;
 using HyperVToolsX.Infrastructure.Validation;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Collections;
 using System.Diagnostics;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -47,8 +50,21 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<HostInventoryRow> _hostInventoryRows = [];
     private readonly ObservableCollection<HyperVHost> _hosts = [];
 
-    private ICollectionView? _vmCollectionView;
+    // vInfo is shown one page at a time: _vmPage holds the visible rows, taken from the filtered and sorted list.
+    private readonly ObservableCollection<HyperVVirtualMachine> _vmPage = [];
+    private int _vmPageIndex;
+    private int _vmFilteredCount;
+    private string? _vmSortPath;
+    private ListSortDirection _vmSortDirection = ListSortDirection.Ascending;
+    private bool _pagingReady;
+
     private ICollectionView? _networkCollectionView;
+
+    // vSummary rows, plus every view whose rows the global search box filters.
+    private readonly ObservableCollection<VmSummaryItem> _summaryItems = [];
+    private readonly List<ICollectionView> _searchViews = [];
+    private readonly List<ICollectionView> _customSearchViews = [];
+    private Dictionary<string, string> _vmIpv4ByName = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly RemoteConnectionOptions _connectionOptions;
     private readonly LiveLog _liveLog;
@@ -64,6 +80,11 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        foreach (var grid in FindGrids(InventoryTabControl))
+        {
+            SetupGridCopy(grid);
+        }
 
         // Composition root: build the shared object graph once here instead of
         // letting each view construct its own copies of these collaborators.
@@ -96,6 +117,13 @@ public partial class MainWindow : Window
 
         Loaded += MainWindow_Loaded;
         PreviewKeyDown += MainWindow_PreviewKeyDown;
+
+        VmDataGrid.ItemsSource = _vmPage;
+
+        PopulateFilters();
+
+        _pagingReady = true;
+        RebuildVmPage();
     }
 
     // =========================================================
@@ -155,7 +183,9 @@ public partial class MainWindow : Window
 
     private void OpenTargetManager()
     {
-        var targetManagerView = new TargetManagerView(
+        // One view instance is kept for the session so entered targets survive
+        // closing and reopening the Target Manager.
+        var targetManagerView = _targetManagerView ??= new TargetManagerView(
             _targetManager,
             _targetValidator,
             _collectionOrchestrator,
@@ -163,21 +193,24 @@ public partial class MainWindow : Window
             _connectionOptions,
             _liveLog);
 
-        _targetManagerView = targetManagerView;
-
         var targetManagerWindow = new Window
         {
             Title = "HyperVToolsX - Target Manager",
-            Width = 1100,
-            Height = 700,
-            MinWidth = 900,
-            MinHeight = 600,
+            Width = 1000,
+            Height = 780,
+            MinWidth = 1000,
+            MinHeight = 780,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
-            Content = targetManagerView
+            Icon = Icon,
+            Content = targetManagerView,
+            ResizeMode = ResizeMode.NoResize
         };
 
         targetManagerWindow.ShowDialog();
+
+        // Detach so the view can be hosted again by the next window.
+        targetManagerWindow.Content = null;
 
         // Closing the Target Manager after a successful collection loads the
         // collected inventory into the main window.
@@ -190,16 +223,6 @@ public partial class MainWindow : Window
     private void ConnectMenuItem_Click(object sender, RoutedEventArgs e)
     {
         OpenTargetManager();
-    }
-
-    private void DisconnectSelectedMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        _targetManagerView?.DisconnectSelected();
-    }
-
-    private void DisconnectAllMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        _targetManagerView?.DisconnectAll();
     }
 
     // =========================================================
@@ -219,6 +242,7 @@ public partial class MainWindow : Window
             LoadCollection(_memories, snapshot.Memories, MemoryDataGrid);
             LoadCollection(_disks, snapshot.Disks, DiskDataGrid);
             LoadNetworkAdapters(snapshot);
+            LoadSummary(snapshot);
             LoadCollection(_networkVlans, snapshot.NetworkVlans, VlanDataGrid);
             LoadCollection(_checkpoints, snapshot.Checkpoints, CheckpointDataGrid);
             LoadCollection(_integrationServices, snapshot.IntegrationServices, IntegrationDataGrid);
@@ -229,6 +253,7 @@ public partial class MainWindow : Window
             LoadCollection(_clusters, snapshot.Clusters, ClusterDataGrid);
             LoadHostInventory(snapshot);
             RefreshCustomTabs(snapshot);
+            AttachSearchFilters();
 
             PopulateFilters();
             UpdateSummary(snapshot);
@@ -268,10 +293,7 @@ public partial class MainWindow : Window
             _virtualMachines.Add(vm);
         }
 
-        _vmCollectionView = CollectionViewSource.GetDefaultView(_virtualMachines);
-        _vmCollectionView.Filter = FilterVm;
-
-        VmDataGrid.ItemsSource = _vmCollectionView;
+        VmDataGrid.ItemsSource = _vmPage;
 
         RefreshVmFilter();
     }
@@ -291,6 +313,26 @@ public partial class MainWindow : Window
         NetworkDataGrid.ItemsSource = _networkCollectionView;
 
         RefreshNetworkFilter();
+    }
+
+    private void LoadSummary(InventorySnapshot snapshot)
+    {
+        _summaryItems.Clear();
+
+        foreach (var item in VmSummaryItem.Build(snapshot))
+        {
+            _summaryItems.Add(item);
+        }
+
+        _vmIpv4ByName = _summaryItems
+            .Where(item => item.IPv4Addresses.Length > 0)
+            .GroupBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => string.Join(", ", g.Select(item => item.IPv4Addresses)),
+                StringComparer.OrdinalIgnoreCase);
+
+        SummaryDataGrid.ItemsSource = _summaryItems;
     }
 
     private void LoadHostInventory(InventorySnapshot snapshot)
@@ -378,6 +420,7 @@ public partial class MainWindow : Window
             }
 
             var grid = BuildCustomGrid(columns);
+            SetupGridCopy(grid);
 
             var tab = new TabItem
             {
@@ -432,9 +475,16 @@ public partial class MainWindow : Window
 
     private void RefreshCustomTabs(InventorySnapshot snapshot)
     {
+        _customSearchViews.Clear();
+
         foreach (var custom in _customTabs)
         {
-            custom.Grid.ItemsSource = CustomTabBuilder.Build(snapshot, custom.Template).Rows;
+            var rows = CustomTabBuilder.Build(snapshot, custom.Template).Rows;
+            custom.Grid.ItemsSource = rows;
+
+            var view = CollectionViewSource.GetDefaultView(rows);
+            view.Filter = MatchesSearch;
+            _customSearchViews.Add(view);
         }
     }
 
@@ -453,13 +503,7 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var matches =
-                vm.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                vm.HostName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                vm.VMId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                vm.ClusterName.Contains(search, StringComparison.OrdinalIgnoreCase);
-
-            if (!matches)
+            if (!MatchesSearch(vm))
             {
                 return false;
             }
@@ -495,9 +539,7 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(search))
         {
             var matches =
-                adapter.VmName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                adapter.HostName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                adapter.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                MatchesSearch(adapter) ||
                 adapter.SwitchName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 adapter.MacAddress.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 adapter.IPv4AddressDisplay.Contains(search, StringComparison.OrdinalIgnoreCase) ||
@@ -512,23 +554,122 @@ public partial class MainWindow : Window
         return MatchesComboFilter(HostFilterComboBox, adapter.HostName);
     }
 
+    private bool FilterSummary(object obj)
+    {
+        return obj is VmSummaryItem item
+               && MatchesSearch(item)
+               && MatchesComboFilter(HostFilterComboBox, item.HostName)
+               && MatchesComboFilter(StateFilterComboBox, item.State)
+               && MatchesComboFilter(ClusterFilterComboBox, item.ClusterName);
+    }
+
+    // Columns the global search looks at, on whichever row type a tab holds.
+    private static readonly string[] SearchPropertyNames =
+        ["VmName", "Name", "HostName", "ComputerName", "ClusterName", "VMId", "IPv4Addresses"];
+
+    private static readonly Dictionary<Type, PropertyInfo[]> SearchProperties = [];
+
+    /// <summary>
+    /// True when the global search text matches the row VM name, host, cluster, VM ID or IPv4 address.
+    /// Rows without an address of their own (vCPU, vDisk, ...) match through their VM addresses.
+    /// </summary>
+    private bool MatchesSearch(object item)
+    {
+        var search = VmSearchTextBox.Text.Trim();
+
+        if (search.Length == 0)
+        {
+            return true;
+        }
+
+        if (item is CompositeRow row)
+        {
+            return row.Values.Any(value => ValueMatches(value, search));
+        }
+
+        var type = item.GetType();
+
+        if (!SearchProperties.TryGetValue(type, out var properties))
+        {
+            properties = SearchPropertyNames
+                .Select(name => type.GetProperty(name))
+                .OfType<PropertyInfo>()
+                .ToArray();
+            SearchProperties[type] = properties;
+        }
+
+        string? vmName = null;
+
+        foreach (var property in properties)
+        {
+            var value = property.GetValue(item);
+
+            if (ValueMatches(value, search))
+            {
+                return true;
+            }
+
+            if (property.Name == "VmName" || (property.Name == "Name" && item is HyperVVirtualMachine or VmSummaryItem))
+            {
+                vmName = value as string;
+            }
+        }
+
+        return vmName is not null
+               && _vmIpv4ByName.TryGetValue(vmName, out var ips)
+               && ips.Contains(search, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ValueMatches(object? value, string search) => value switch
+    {
+        null => false,
+        string text => text.Contains(search, StringComparison.OrdinalIgnoreCase),
+        CollapsedValue collapsed => collapsed.Items.Any(v => ValueMatches(v, search)),
+        IEnumerable list => list.Cast<object?>().Any(v => ValueMatches(v, search)),
+        _ => value.ToString()?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
+    };
+
+    /// <summary>Points every plain tab grid at the global search filter.</summary>
+    private void AttachSearchFilters()
+    {
+        _searchViews.Clear();
+
+        IEnumerable[] sources =
+        [
+            _processors, _memories, _disks, _networkVlans, _checkpoints, _integrationServices,
+            _vmStorage, _vhds, _replications, _dvds, _clusters, _hostInventoryRows
+        ];
+
+        foreach (var source in sources)
+        {
+            var view = CollectionViewSource.GetDefaultView(source);
+            view.Filter = MatchesSearch;
+            _searchViews.Add(view);
+        }
+
+        var summaryView = CollectionViewSource.GetDefaultView(_summaryItems);
+        summaryView.Filter = FilterSummary;
+        _searchViews.Add(summaryView);
+    }
+
     private static bool MatchesComboFilter(ComboBox comboBox, string value)
     {
+        // The first entry ("All Clusters", "All Hosts", ...) means no filter.
         var selected = comboBox.SelectedItem as string;
 
-        return string.IsNullOrWhiteSpace(selected) ||
-               selected == "All" ||
+        return comboBox.SelectedIndex <= 0 ||
+               string.IsNullOrWhiteSpace(selected) ||
                value.Equals(selected, StringComparison.OrdinalIgnoreCase);
     }
 
     private void PopulateFilters()
     {
-        SetComboBoxItems(HostFilterComboBox, _virtualMachines.Select(vm => vm.HostName));
-        SetComboBoxItems(StateFilterComboBox, _virtualMachines.Select(vm => vm.State));
-        SetComboBoxItems(ClusterFilterComboBox, _virtualMachines.Select(vm => vm.ClusterName));
+        SetComboBoxItems(HostFilterComboBox, _virtualMachines.Select(vm => vm.HostName), "All Hosts");
+        SetComboBoxItems(StateFilterComboBox, _virtualMachines.Select(vm => vm.State), "All States");
+        SetComboBoxItems(ClusterFilterComboBox, _virtualMachines.Select(vm => vm.ClusterName), "All Clusters");
     }
 
-    private static void SetComboBoxItems(ComboBox comboBox, IEnumerable<string> values)
+    private static void SetComboBoxItems(ComboBox comboBox, IEnumerable<string> values, string allLabel)
     {
         var distinctValues = values
             .Where(v => !string.IsNullOrWhiteSpace(v))
@@ -536,7 +677,7 @@ public partial class MainWindow : Window
             .OrderBy(v => v)
             .ToList();
 
-        comboBox.ItemsSource = new[] { "All" }.Concat(distinctValues).ToList();
+        comboBox.ItemsSource = new[] { allLabel }.Concat(distinctValues).ToList();
         comboBox.SelectedIndex = 0;
     }
 
@@ -558,10 +699,119 @@ public partial class MainWindow : Window
 
     private void RefreshVmFilter()
     {
-        _vmCollectionView?.Refresh();
+        // A new filter starts again from the first page.
+        _vmPageIndex = 0;
+        RebuildVmPage();
+
         _networkCollectionView?.Refresh();
 
+        foreach (var view in _searchViews.Concat(_customSearchViews))
+        {
+            view.Refresh();
+        }
+
         UpdateVisibleCounts();
+    }
+
+    // =========================================================
+    // VM PAGING AND SORTING
+    // =========================================================
+
+    private int VmPageSize =>
+        int.TryParse((PageSizeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString(), out var size) && size > 0
+            ? size
+            : 50;
+
+    /// <summary>
+    /// Filters, sorts and pages the VMs. Sorting is done over the whole filtered list (not just the visible
+    /// page), so clicking a column header orders every row, then the page is cut from the result.
+    /// </summary>
+    private void RebuildVmPage()
+    {
+        if (!_pagingReady)
+        {
+            return;
+        }
+
+        var filtered = _virtualMachines.Where(vm => FilterVm(vm)).ToList();
+
+        if (_vmSortPath is not null
+            && typeof(HyperVVirtualMachine).GetProperty(_vmSortPath) is { } property)
+        {
+            filtered = (_vmSortDirection == ListSortDirection.Ascending
+                    ? filtered.OrderBy(vm => property.GetValue(vm))
+                    : filtered.OrderByDescending(vm => property.GetValue(vm)))
+                .ToList();
+        }
+
+        _vmFilteredCount = filtered.Count;
+
+        var pageSize = VmPageSize;
+        var pageCount = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)pageSize));
+        _vmPageIndex = Math.Clamp(_vmPageIndex, 0, pageCount - 1);
+
+        _vmPage.Clear();
+
+        foreach (var vm in filtered.Skip(_vmPageIndex * pageSize).Take(pageSize))
+        {
+            _vmPage.Add(vm);
+        }
+
+        PrevPageButton.IsEnabled = _vmPageIndex > 0;
+        NextPageButton.IsEnabled = _vmPageIndex < pageCount - 1;
+
+        UpdateVisibleCounts();
+    }
+
+    private void VmDataGrid_Sorting(object sender, DataGridSortingEventArgs e)
+    {
+        e.Handled = true;
+
+        var path = e.Column.SortMemberPath;
+
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        _vmSortDirection = _vmSortPath == path && _vmSortDirection == ListSortDirection.Ascending
+            ? ListSortDirection.Descending
+            : ListSortDirection.Ascending;
+        _vmSortPath = path;
+
+        foreach (var column in VmDataGrid.Columns)
+        {
+            column.SortDirection = null;
+        }
+
+        e.Column.SortDirection = _vmSortDirection;
+
+        _vmPageIndex = 0;
+        RebuildVmPage();
+    }
+
+    private void PageSizeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _vmPageIndex = 0;
+        RebuildVmPage();
+    }
+
+    private void PrevPageButton_Click(object sender, RoutedEventArgs e)
+    {
+        _vmPageIndex--;
+        RebuildVmPage();
+    }
+
+    private void NextPageButton_Click(object sender, RoutedEventArgs e)
+    {
+        _vmPageIndex++;
+        RebuildVmPage();
+    }
+
+    private void SettingsHeaderButton_Click(object sender, RoutedEventArgs e)
+    {
+        // The gear opens the Preferences menu (data size unit).
+        PreferencesMenuItem.IsSubmenuOpen = true;
     }
 
     private void RefreshNetworkFilter()
@@ -572,11 +822,19 @@ public partial class MainWindow : Window
 
     private void UpdateVisibleCounts()
     {
-        if (_vmCollectionView != null)
+        if (_pagingReady)
         {
-            var visible = _vmCollectionView.Cast<object>().Count();
-            VmSummaryCountText.Text = $"Showing {visible} of {_virtualMachines.Count} VMs";
-            RowCountText.Text = $"{visible} rows";
+            var pageSize = VmPageSize;
+            var first = _vmFilteredCount == 0 ? 0 : _vmPageIndex * pageSize + 1;
+            var last = Math.Min(_vmFilteredCount, (_vmPageIndex + 1) * pageSize);
+
+            VmSummaryCountText.Text = _vmFilteredCount == 0
+                ? $"Showing 0 of {_virtualMachines.Count} VMs"
+                : _vmFilteredCount == _virtualMachines.Count
+                    ? $"Showing {first}-{last} of {_vmFilteredCount} VMs"
+                    : $"Showing {first}-{last} of {_vmFilteredCount} VMs (filtered from {_virtualMachines.Count})";
+
+            RowCountText.Text = $"{_vmFilteredCount} rows";
         }
 
         if (_networkCollectionView != null)
@@ -729,6 +987,7 @@ public partial class MainWindow : Window
     private void RefreshSizeDisplays()
     {
         VmDataGrid.Items.Refresh();
+        SummaryDataGrid.Items.Refresh();
         MemoryDataGrid.Items.Refresh();
         StorageDataGrid.Items.Refresh();
         DiskDataGrid.Items.Refresh();
@@ -743,6 +1002,97 @@ public partial class MainWindow : Window
         }
 
         UpdateSummary(_inventoryCache.GetSnapshot());
+    }
+
+    // =========================================================
+    // COPYING FROM GRIDS
+    // =========================================================
+
+    private static IEnumerable<DataGrid> FindGrids(DependencyObject parent)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())
+        {
+            if (child is DataGrid grid)
+            {
+                yield return grid;
+            }
+            else
+            {
+                foreach (var nested in FindGrids(child))
+                {
+                    yield return nested;
+                }
+            }
+        }
+    }
+
+    private static T? FindParent<T>(DependencyObject? element) where T : DependencyObject
+    {
+        while (element is not null && element is not T)
+        {
+            element = element is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D
+                ? System.Windows.Media.VisualTreeHelper.GetParent(element)
+                : LogicalTreeHelper.GetParent(element);
+        }
+
+        return element as T;
+    }
+
+    /// <summary>
+    /// Lets any grid select several rows, copy them with Ctrl+C, and copy a single cell or the
+    /// selected rows (optionally with headers) from the right-click menu.
+    /// </summary>
+    private static void SetupGridCopy(DataGrid grid)
+    {
+        grid.SelectionMode = DataGridSelectionMode.Extended;
+        grid.SelectionUnit = DataGridSelectionUnit.FullRow;
+        grid.ClipboardCopyMode = DataGridClipboardCopyMode.ExcludeHeader;
+
+        DataGridCell? clickedCell = null;
+
+        grid.PreviewMouseDown += (_, e) =>
+        {
+            clickedCell = FindParent<DataGridCell>(e.OriginalSource as DependencyObject);
+
+            // A right-click on an unselected row selects it, so Copy Row(s) has something to copy.
+            if (e.ChangedButton == MouseButton.Right
+                && FindParent<DataGridRow>(e.OriginalSource as DependencyObject) is { IsSelected: false } row)
+            {
+                grid.SelectedItems.Clear();
+                row.IsSelected = true;
+            }
+        };
+
+        void CopyRows(DataGridClipboardCopyMode mode)
+        {
+            var previous = grid.ClipboardCopyMode;
+            grid.ClipboardCopyMode = mode;
+            ApplicationCommands.Copy.Execute(null, grid);
+            grid.ClipboardCopyMode = previous;
+        }
+
+        var copyCell = new MenuItem { Header = "Copy Cell" };
+        copyCell.Click += (_, _) =>
+        {
+            if (clickedCell?.Column is null)
+            {
+                return;
+            }
+
+            var text = clickedCell.Column.OnCopyingCellClipboardContent(clickedCell.DataContext)?.ToString()
+                       ?? (clickedCell.Content as TextBlock)?.Text
+                       ?? string.Empty;
+
+            Clipboard.SetText(text);
+        };
+
+        var copyRows = new MenuItem { Header = "Copy Row(s)", InputGestureText = "Ctrl+C" };
+        copyRows.Click += (_, _) => CopyRows(DataGridClipboardCopyMode.ExcludeHeader);
+
+        var copyRowsWithHeaders = new MenuItem { Header = "Copy Row(s) with Headers" };
+        copyRowsWithHeaders.Click += (_, _) => CopyRows(DataGridClipboardCopyMode.IncludeHeader);
+
+        grid.ContextMenu = new ContextMenu { Items = { copyCell, copyRows, copyRowsWithHeaders } };
     }
 
     // =========================================================

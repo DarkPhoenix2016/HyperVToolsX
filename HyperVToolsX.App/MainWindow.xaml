@@ -2,7 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:converters="clr-namespace:HyperVToolsX.App.Converters"
+        xmlns:controls="clr-namespace:HyperVToolsX.App.Controls"
         Title="HyperVToolsX"
+        Icon="/Resources/logo.png"
         Height="800"
         Width="1400"
         MinHeight="600"
@@ -11,90 +13,32 @@
     <Window.Resources>
         <converters:ByteSizeConverter x:Key="ByteSizeConverter"/>
 
-        <!-- Modern flat icon-button style used in the header toolbar -->
-        <Style x:Key="IconButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Padding" Value="10,6"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="4"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#22FFFFFF"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="#33FFFFFF"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.45"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Rounded, focus-aware search box -->
-        <Style x:Key="SearchBoxStyle" TargetType="TextBox">
-            <Setter Property="BorderBrush" Value="#CCCCCC"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="Border"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="5">
-                            <ScrollViewer x:Name="PART_ContentHost"
-                                          Margin="{TemplateBinding Padding}"
-                                          VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsFocused" Value="True">
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#0067B8"/>
-                                <Setter TargetName="Border" Property="BorderThickness" Value="2"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        <!-- Header action buttons: icon + label -->
+        <Style x:Key="HeaderButtonText" TargetType="TextBlock">
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
 
-    <Grid Background="#F5F5F5">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="26"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <Menu Grid.Row="0">
             <MenuItem Header="_File">
                 <MenuItem Header="_Connect..." Click="ConnectMenuItem_Click" InputGestureText="Ctrl+N"/>
-                <MenuItem Header="Disconnect Selected" Click="DisconnectSelectedMenuItem_Click"/>
-                <MenuItem Header="Disconnect All" Click="DisconnectAllMenuItem_Click"/>
                 <Separator/>
                 <MenuItem Header="Export to Excel..." Click="ExportToExcelMenuItem_Click" InputGestureText="Ctrl+E"/>
                 <Separator/>
                 <MenuItem Header="Exit" Click="ExitMenuItem_Click"/>
             </MenuItem>
-            <MenuItem Header="_Preferences">
+            <MenuItem x:Name="PreferencesMenuItem" Header="_Preferences">
                 <MenuItem Header="Data Size Unit">
                     <Separator/>
 
@@ -108,35 +52,30 @@
             x:Name="KbUnitMenuItem"
             Header="KB"
             IsCheckable="True"
-            
             Click="SizeUnitMenuItem_Click"/>
 
                     <MenuItem
             x:Name="MbUnitMenuItem"
             Header="MB"
             IsCheckable="True"
-            
             Click="SizeUnitMenuItem_Click"/>
 
                     <MenuItem
             x:Name="GbUnitMenuItem"
             Header="GB"
             IsCheckable="True"
-            
             Click="SizeUnitMenuItem_Click"/>
 
                     <MenuItem
             x:Name="TbUnitMenuItem"
             Header="TB"
             IsCheckable="True"
-            
             Click="SizeUnitMenuItem_Click"/>
 
                     <MenuItem
             x:Name="PbUnitMenuItem"
             Header="PB"
             IsCheckable="True"
-            
             Click="SizeUnitMenuItem_Click"/>
                 </MenuItem>
             </MenuItem>
@@ -153,261 +92,385 @@
             </MenuItem>
         </Menu>
 
-        <Border Grid.Row="1"
-                Padding="18,12">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                    <GradientStop Color="#0067B8" Offset="0"/>
-                    <GradientStop Color="#0053A0" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
+        <!-- HEADER -->
+        <Grid Grid.Row="1" Margin="28,8,28,18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Image Source="/Resources/logo.png" Width="56" Height="56" RenderOptions.BitmapScalingMode="HighQuality"/>
 
-                <StackPanel Grid.Column="0">
+                <StackPanel Margin="18,0,0,0" VerticalAlignment="Center">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="HyperVToolsX"
-                                   Foreground="White"
-                                   FontSize="28"
-                                   FontWeight="Bold"/>
-                        <Border Background="#FFD400"
-                                CornerRadius="3"
-                                Margin="10,3,0,0"
-                                Padding="6,2"
-                                VerticalAlignment="Top">
+                                   FontSize="16"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                        <Border Background="#FFC93C"
+                                CornerRadius="6"
+                                Margin="12,2,0,0"
+                                Padding="9,3"
+                                VerticalAlignment="Center">
                             <TextBlock Text="BETA"
-                                       Foreground="#333333"
+                                       Foreground="#4A3500"
                                        FontSize="11"
                                        FontWeight="Bold"/>
                         </Border>
                     </StackPanel>
                     <TextBlock Text="Hyper-V Inventory &amp; Documentation Tool"
-                               Foreground="#D9E9F8"
-                               FontSize="13"
+                               Style="{StaticResource MutedText}"
+                               FontSize="12"
                                Margin="0,2,0,0"/>
                 </StackPanel>
+            </StackPanel>
 
-                <StackPanel Grid.Column="1"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center">
-                    <Button x:Name="RefreshHeaderButton"
-                            Style="{StaticResource IconButtonStyle}"
-                            Content="&#x21BB;  Refresh"
-                            Margin="0,0,4,0"
-                            ToolTip="Reload the current inventory snapshot (F5)"
-                            Click="RefreshMenuItem_Click"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="RefreshHeaderButton"
+                        Height="48"
+                        Padding="22,0"
+                        Margin="0,0,12,0"
+                        ToolTip="Reload the current inventory snapshot (F5)"
+                        Click="RefreshMenuItem_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <controls:Icon Data="{StaticResource Icon.Refresh}" Width="20" Height="20"/>
+                        <TextBlock Text="Refresh" Style="{StaticResource HeaderButtonText}"/>
+                    </StackPanel>
+                </Button>
 
-                    <Button x:Name="ExportHeaderButton"
-                            Style="{StaticResource IconButtonStyle}"
-                            Content="&#x2913;  Export"
-                            Margin="0,0,4,0"
-                            ToolTip="Export the current inventory to Excel (Ctrl+E)"
-                            Click="ExportToExcelMenuItem_Click"/>
+                <Button x:Name="ExportHeaderButton"
+                        Style="{StaticResource OutlineBlueButton}"
+                        Height="48"
+                        Padding="22,0"
+                        Margin="0,0,12,0"
+                        ToolTip="Export the current inventory to Excel (Ctrl+E)"
+                        Click="ExportToExcelMenuItem_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <controls:Icon Data="{StaticResource Icon.Download}" Width="20" Height="20"/>
+                        <TextBlock Text="Export" Style="{StaticResource HeaderButtonText}"/>
+                    </StackPanel>
+                </Button>
 
-                    <Button x:Name="ConnectHeaderButton"
-                            Style="{StaticResource IconButtonStyle}"
-                            Content="&#x1F517;  Connect..."
-                            ToolTip="Add or manage Hyper-V targets (Ctrl+N)"
-                            Click="ConnectMenuItem_Click"/>
-                </StackPanel>
-            </Grid>
-        </Border>
+                <Button x:Name="ConnectHeaderButton"
+                        Style="{StaticResource PrimaryButton}"
+                        Height="48"
+                        Padding="26,0"
+                        Margin="0,0,12,0"
+                        ToolTip="Add or manage Hyper-V targets (Ctrl+N)"
+                        Click="ConnectMenuItem_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <controls:Icon Data="{StaticResource Icon.Link}" Width="20" Height="20"/>
+                        <TextBlock Text="Connect..." Style="{StaticResource HeaderButtonText}"/>
+                    </StackPanel>
+                </Button>
 
-        <UniformGrid Grid.Row="2"
-                     Columns="7"
-                     Margin="8,8,8,4">
-            <Border Style="{StaticResource SummaryCardStyle}">
-                <StackPanel>
-                    <TextBlock Text="0"
-                               x:Name="TotalVmText"
-                               Style="{StaticResource SummaryNumberStyle}"/>
-                    <TextBlock Text="Total VMs"
-                               Style="{StaticResource SummaryLabelStyle}"/>
-                </StackPanel>
+                <Button x:Name="SettingsHeaderButton"
+                        Style="{StaticResource IconOnlyButton}"
+                        Height="48"
+                        Width="48"
+                        ToolTip="Preferences"
+                        Click="SettingsHeaderButton_Click">
+                    <controls:Icon Data="{StaticResource Icon.Settings}" Width="22" Height="22"/>
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- SUMMARY CARDS -->
+        <UniformGrid Grid.Row="2" Columns="7" Margin="22,0,22,12">
+            <Border Style="{StaticResource Card}" Margin="6" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource IconTile}" Background="#E5EEFC">
+                        <controls:Icon Data="{StaticResource Icon.ServerStack}" Width="24" Height="24" Foreground="#2F6FE0"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="TotalVmText" Text="0" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Total VMs" Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border Style="{StaticResource SummaryCardStyle}">
-                <StackPanel>
-                    <TextBlock Text="0"
-                               x:Name="RunningVmText"
-                               Style="{StaticResource SummaryNumberStyle}"/>
-                    <TextBlock Text="Running"
-                               Style="{StaticResource SummaryLabelStyle}"/>
-                </StackPanel>
+
+            <Border Style="{StaticResource Card}" Margin="6" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource IconTile}" Background="#E3F6EA">
+                        <controls:Icon Data="{StaticResource Icon.PlayCircle}" Width="24" Height="24" Foreground="#1FA453"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="RunningVmText" Text="0" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Running" Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border Style="{StaticResource SummaryCardStyle}">
-                <StackPanel>
-                    <TextBlock Text="0"
-                               x:Name="PoweredOffVmText"
-                               Style="{StaticResource SummaryNumberStyle}"/>
-                    <TextBlock Text="Powered Off"
-                               Style="{StaticResource SummaryLabelStyle}"/>
-                </StackPanel>
+
+            <Border Style="{StaticResource Card}" Margin="6" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource IconTile}" Background="#FDE8E8">
+                        <controls:Icon Data="{StaticResource Icon.Stop}" Width="24" Height="24" Foreground="#E0453F"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="PoweredOffVmText" Text="0" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Powered Off" Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border Style="{StaticResource SummaryCardStyle}">
-                <StackPanel>
-                    <TextBlock Text="0"
-                               x:Name="TotalCpuText"
-                               Style="{StaticResource SummaryNumberStyle}"/>
-                    <TextBlock Text="Total CPUs"
-                               Style="{StaticResource SummaryLabelStyle}"/>
-                </StackPanel>
+
+            <Border Style="{StaticResource Card}" Margin="6" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource IconTile}" Background="#ECE8FB">
+                        <controls:Icon Data="{StaticResource Icon.Cpu}" Width="24" Height="24" Foreground="#6A4FE0"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="TotalCpuText" Text="0" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Total CPUs" Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border Style="{StaticResource SummaryCardStyle}">
-                <StackPanel>
-                    <TextBlock Text="0 GB"
-                               x:Name="AssignedMemoryText"
-                               Style="{StaticResource SummaryNumberStyle}"/>
-                    <TextBlock Text="Assigned Memory"
-                               Style="{StaticResource SummaryLabelStyle}"/>
-                </StackPanel>
+
+            <Border Style="{StaticResource Card}" Margin="6" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource IconTile}" Background="#F2E6FB">
+                        <controls:Icon Data="{StaticResource Icon.Database}" Width="24" Height="24" Foreground="#9B4FD0"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="AssignedMemoryText" Text="0 GB" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Assigned Memory" Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border Style="{StaticResource SummaryCardStyle}">
-                <StackPanel>
-                    <TextBlock Text="0"
-                               x:Name="CheckpointText"
-                               Style="{StaticResource SummaryNumberStyle}"/>
-                    <TextBlock Text="Checkpoints"
-                               Style="{StaticResource SummaryLabelStyle}"/>
-                </StackPanel>
+
+            <Border Style="{StaticResource Card}" Margin="6" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource IconTile}" Background="#FDEEE0">
+                        <controls:Icon Data="{StaticResource Icon.File}" Width="24" Height="24" Foreground="#F0883A"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="CheckpointText" Text="0" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Checkpoints" Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                </Grid>
             </Border>
-            <Border Style="{StaticResource SummaryCardStyle}">
-                <StackPanel>
-                    <TextBlock Text="0/0"
-                               x:Name="NodesQueriedText"
-                               Style="{StaticResource SummaryNumberStyle}"/>
-                    <TextBlock Text="Nodes Queried"
-                               Style="{StaticResource SummaryLabelStyle}"/>
-                </StackPanel>
+
+            <Border Style="{StaticResource Card}" Margin="6" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource IconTile}" Background="#E1F5EA">
+                        <controls:Icon Data="{StaticResource Icon.Nodes}" Width="24" Height="24" Foreground="#22A06B"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="NodesQueriedText" Text="0/0" FontSize="16" FontWeight="Bold"/>
+                        <TextBlock Text="Nodes Queried" Style="{StaticResource MutedText}"/>
+                    </StackPanel>
+                </Grid>
             </Border>
         </UniformGrid>
 
-        <TextBlock Grid.Row="3"
-                   x:Name="LastUpdatedText"
-                   Text="Last updated: Never | LOCAL"
-                   Margin="12,2,12,6"
-                   Foreground="#555555"
-                   FontSize="12"/>
-
-        <Grid Grid.Row="4"
-              Margin="8,0,8,6">
+        <!-- SEARCH + FILTERS -->
+        <Grid Grid.Row="3" Margin="28,4,28,14">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1.5*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1.3*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1.3*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="1.3*"/>
             </Grid.ColumnDefinitions>
 
-            <Grid Grid.Column="0"
-                  Margin="0,0,8,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,24,0">
+                <controls:Icon Data="{StaticResource Icon.Clock}" Width="18" Height="18" Foreground="#5A6B85"/>
+                <TextBlock x:Name="LastUpdatedText"
+                           Text="Last updated: Never | LOCAL"
+                           Foreground="#3A4A63"
+                           FontSize="12"
+                           Margin="10,0,0,0"/>
+            </StackPanel>
 
+            <Grid Grid.Column="1" Margin="0,0,24,0">
                 <TextBox x:Name="VmSearchTextBox"
-                         Grid.Column="0"
-                         Style="{StaticResource SearchBoxStyle}"
-                         Height="32"
-                         Padding="30,0,8,0"
+                         Height="42"
+                         Padding="42,0,20,0"
                          VerticalContentAlignment="Center"
                          TextChanged="VmSearchTextBox_TextChanged"
                          KeyDown="VmSearchTextBox_KeyDown"/>
 
-                <TextBlock Text="&#x1F50D;"
-                           Margin="8,0,0,0"
-                           VerticalAlignment="Center"
-                           Foreground="#999999"
-                           IsHitTestVisible="False"/>
+                <controls:Icon Data="{StaticResource Icon.Search}"
+                               Width="18" Height="18"
+                               Margin="14,0,0,0"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Center"
+                               Foreground="#7A889E"/>
 
                 <TextBlock x:Name="VmSearchPlaceholder"
                            Text="Search VMs, hosts, or IP addresses..."
-                           Margin="30,0,0,0"
+                           Margin="42,0,0,0"
                            VerticalAlignment="Center"
-                           Foreground="Gray"
+                           Foreground="#8A97AB"
                            IsHitTestVisible="False"/>
 
                 <Button x:Name="ClearSearchButton"
-                        Grid.Column="0"
-                        Content="&#x2715;"
-                        Width="22"
-                        Height="22"
-                        Padding="0"
-                        Margin="0,0,6,0"
+                        Style="{StaticResource GhostButton}"
+                        Width="26"
+                        Height="26"
+                        Margin="0,0,8,0"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Center"
-                        Background="Transparent"
-                        BorderThickness="0"
-                        Foreground="#888888"
-                        Cursor="Hand"
                         Visibility="Collapsed"
                         ToolTip="Clear search (Esc)"
-                        Click="ClearSearchButton_Click"/>
+                        Click="ClearSearchButton_Click">
+                    <controls:Icon Data="{StaticResource Icon.Close}" Width="14" Height="14"/>
+                </Button>
             </Grid>
 
-            <Grid Grid.Column="1"
-                  Margin="4,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0"
-                           Text="Cluster:"
-                           VerticalAlignment="Center"
-                           Margin="0,0,6,0"/>
-                <ComboBox x:Name="ClusterFilterComboBox"
-                          Grid.Column="1"
-                          Height="32"
-                          VerticalContentAlignment="Center"
-                          SelectionChanged="ClusterFilterComboBox_SelectionChanged"/>
-            </Grid>
+            <TextBlock Grid.Column="2" Text="Cluster:" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
+            <ComboBox x:Name="ClusterFilterComboBox"
+                      Grid.Column="3"
+                      Height="42"
+                      Margin="0,0,24,0"
+                      SelectionChanged="ClusterFilterComboBox_SelectionChanged"/>
 
-            <Grid Grid.Column="2"
-                  Margin="4,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0"
-                           Text="Host:"
-                           VerticalAlignment="Center"
-                           Margin="0,0,6,0"/>
-                <ComboBox x:Name="HostFilterComboBox"
-                          Grid.Column="1"
-                          Height="32"
-                          VerticalContentAlignment="Center"
-                          SelectionChanged="HostFilterComboBox_SelectionChanged"/>
-            </Grid>
+            <TextBlock Grid.Column="4" Text="Host:" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
+            <ComboBox x:Name="HostFilterComboBox"
+                      Grid.Column="5"
+                      Height="42"
+                      Margin="0,0,24,0"
+                      SelectionChanged="HostFilterComboBox_SelectionChanged"/>
 
-            <Grid Grid.Column="3"
-                  Margin="4,0,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0"
-                           Text="State:"
-                           VerticalAlignment="Center"
-                           Margin="0,0,6,0"/>
-                <ComboBox x:Name="StateFilterComboBox"
-                          Grid.Column="1"
-                          Height="32"
-                          VerticalContentAlignment="Center"
-                          SelectionChanged="StateFilterComboBox_SelectionChanged"/>
-            </Grid>
+            <TextBlock Grid.Column="6" Text="State:" VerticalAlignment="Center" FontSize="12" Margin="0,0,8,0"/>
+            <ComboBox x:Name="StateFilterComboBox"
+                      Grid.Column="7"
+                      Height="42"
+                      SelectionChanged="StateFilterComboBox_SelectionChanged"/>
         </Grid>
 
+        <!-- TABS -->
+        <Border Grid.Row="4" Style="{StaticResource Card}" Margin="28,0,28,14" Padding="6,0,6,0">
         <TabControl x:Name="InventoryTabControl"
-            Grid.Row="5"
-            Margin="8,0,8,4">
-            <TabControl.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <UniformGrid Columns="12"/>
-                </ItemsPanelTemplate>
-            </TabControl.ItemsPanel>
+            Padding="16,14,16,14">
+
+            <TabItem Header="vSummary">
+                <Border BorderBrush="{StaticResource BorderBrushSoft}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Background="White"
+                        ClipToBounds="True">
+                    <DataGrid x:Name="SummaryDataGrid"
+                              BorderThickness="0"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              CanUserSortColumns="True"
+                              CanUserResizeColumns="True"
+                              CanUserReorderColumns="True"
+                              EnableRowVirtualization="True"
+                              EnableColumnVirtualization="True"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="VM Name" Binding="{Binding Name}" SortMemberPath="Name" Width="170"/>
+                            <DataGridTextColumn Header="VM ID" Binding="{Binding VMId}" SortMemberPath="VMId" Width="270"/>
+                            <DataGridTextColumn Header="Host" Binding="{Binding HostName}" SortMemberPath="HostName" Width="130"/>
+                            <DataGridTextColumn Header="Cluster" Binding="{Binding ClusterName}" SortMemberPath="ClusterName" Width="130"/>
+
+                            <DataGridTemplateColumn Header="State" SortMemberPath="State" ClipboardContentBinding="{Binding State}" Width="110">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="6" Padding="8,2" HorizontalAlignment="Left">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#FFF4DC"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding State}" Value="Running">
+                                                            <Setter Property="Background" Value="#E3F6EA"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding State}" Value="Off">
+                                                            <Setter Property="Background" Value="#FDE8E8"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding State}" FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="#B26A00"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Running">
+                                                                <Setter Property="Foreground" Value="#1FA453"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="Off">
+                                                                <Setter Property="Foreground" Value="#E0453F"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTextColumn Header="IPv4 Address" Binding="{Binding IPv4Addresses}" SortMemberPath="IPv4Addresses" Width="150"/>
+
+                            <DataGridTemplateColumn Header="CPU Usage" SortMemberPath="CpuUsage" ClipboardContentBinding="{Binding CpuUsageText}" Width="110">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding CpuUsageText}"/>
+                                            <ProgressBar Height="5" Margin="0,3,0,0" Minimum="0" Maximum="100"
+                                                         Value="{Binding CpuUsage, Mode=OneWay}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTextColumn Header="Processor Count" Binding="{Binding ProcessorCount}" SortMemberPath="ProcessorCount" Width="115"/>
+                            <DataGridTextColumn Header="Memory Status" Binding="{Binding MemoryStatus}" SortMemberPath="MemoryStatus" Width="115"/>
+
+                            <DataGridTemplateColumn Header="Memory Usage" SortMemberPath="MemoryUsagePercent" ClipboardContentBinding="{Binding MemoryUsageText}" Width="170">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding MemoryUsageText}"/>
+                                            <ProgressBar Height="5" Margin="0,3,0,0" Minimum="0" Maximum="100"
+                                                         Foreground="{StaticResource GreenBrush}"
+                                                         Value="{Binding MemoryUsagePercent, Mode=OneWay}"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTextColumn Header="Uptime" Binding="{Binding UptimeText}" SortMemberPath="Uptime" Width="100"/>
+                            <DataGridTextColumn Header="Boot Time" Binding="{Binding BootTimeText}" SortMemberPath="BootTime" Width="150"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+            </TabItem>
 
             <TabItem Header="vInfo">
                 <Grid>
@@ -416,8 +479,17 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
+                    <Border Grid.Row="0"
+                            BorderBrush="{StaticResource BorderBrushSoft}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Background="White"
+                            ClipToBounds="True">
+                        <Grid>
                     <DataGrid x:Name="VmDataGrid"
-                      Grid.Row="0"
+                      BorderThickness="0"
+                      Sorting="VmDataGrid_Sorting"
+                      
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
                       CanUserAddRows="False"
@@ -432,8 +504,7 @@
                       EnableRowVirtualization="True"
                       EnableColumnVirtualization="True"
                       ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                      ScrollViewer.VerticalScrollBarVisibility="Auto"
-                      RowHeight="28">
+                      ScrollViewer.VerticalScrollBarVisibility="Auto">
 
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="VM Name"
@@ -698,11 +769,96 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <TextBlock x:Name="VmSummaryCountText"
-                       Grid.Row="1"
-                       Margin="4,6,4,0"
-                       Foreground="#666666"
-                       Text="Showing 0 of 0 VMs"/>
+                    <!-- Empty state, shown while the grid has no rows -->
+                    <StackPanel x:Name="VmEmptyState"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Margin="0,40,0,0"
+                                IsHitTestVisible="True">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Items.Count, ElementName=VmDataGrid}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <controls:Icon Data="{StaticResource Icon.ServerStack}"
+                                       Width="84" Height="84"
+                                       StrokeThickness="1.2"
+                                       Foreground="#B9C6DC"
+                                       HorizontalAlignment="Center"/>
+                        <TextBlock Text="No virtual machines to display"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,14,0,4"/>
+                        <TextBlock Text="Connect to a cluster or host to load inventory data."
+                                   Style="{StaticResource MutedText}"
+                                   HorizontalAlignment="Center"/>
+                        <Button Style="{StaticResource PrimaryButton}"
+                                Height="46"
+                                Padding="28,0"
+                                Margin="0,22,0,0"
+                                HorizontalAlignment="Center"
+                                Click="ConnectMenuItem_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <controls:Icon Data="{StaticResource Icon.Link}" Width="20" Height="20"/>
+                                <TextBlock Text="Connect..." Style="{StaticResource HeaderButtonText}"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1" Margin="4,12,4,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock x:Name="VmSummaryCountText"
+                                   Style="{StaticResource MutedText}"
+                                   VerticalAlignment="Center"
+                                   Text="Showing 0 of 0 VMs"/>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <TextBlock Text="Rows per page:"
+                                       Style="{StaticResource MutedText}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,10,0"/>
+                            <ComboBox x:Name="PageSizeComboBox"
+                                      Width="92"
+                                      Height="38"
+                                      SelectedIndex="1"
+                                      SelectionChanged="PageSizeComboBox_SelectionChanged">
+                                <ComboBoxItem Content="25"/>
+                                <ComboBoxItem Content="50"/>
+                                <ComboBoxItem Content="100"/>
+                                <ComboBoxItem Content="250"/>
+                                <ComboBoxItem Content="500"/>
+                            </ComboBox>
+                            <Button x:Name="PrevPageButton"
+                                    Width="38" Height="38" MinHeight="38"
+                                    Padding="0"
+                                    Margin="12,0,0,0"
+                                    ToolTip="Previous page"
+                                    Click="PrevPageButton_Click">
+                                <controls:Icon Data="{StaticResource Icon.ChevronLeft}" Width="16" Height="16"/>
+                            </Button>
+                            <Button x:Name="NextPageButton"
+                                    Width="38" Height="38" MinHeight="38"
+                                    Padding="0"
+                                    Margin="8,0,0,0"
+                                    ToolTip="Next page"
+                                    Click="NextPageButton_Click">
+                                <controls:Icon Data="{StaticResource Icon.ChevronRight}" Width="16" Height="16"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
                 </Grid>
             </TabItem>
 
@@ -2349,24 +2505,30 @@
             </TabItem>
 
         </TabControl>
+        </Border>
 
-        <StatusBar Grid.Row="6">
+        <StatusBar Grid.Row="5">
             <StatusBarItem>
                 <StackPanel Orientation="Horizontal">
+                    <Ellipse Width="10" Height="10"
+                             Fill="{StaticResource GreenBrush}"
+                             VerticalAlignment="Center"
+                             Margin="0,0,10,0"/>
                     <ProgressBar x:Name="BusyIndicator"
                                  Width="80"
-                                 Height="12"
-                                 Margin="0,0,8,0"
+                                 Height="10"
+                                 Margin="0,0,10,0"
                                  IsIndeterminate="True"
                                  Visibility="Collapsed"/>
                     <TextBlock x:Name="StatusText"
-                               Text="Ready"/>
+                               Text="Ready"
+                               FontSize="12"/>
                 </StackPanel>
             </StatusBarItem>
-            <Separator/>
-            <StatusBarItem HorizontalAlignment="Right">
+            <StatusBarItem HorizontalAlignment="Right" DockPanel.Dock="Right">
                 <TextBlock x:Name="RowCountText"
-                           Text="0 rows"/>
+                           Text="0 rows"
+                           FontSize="12"/>
             </StatusBarItem>
         </StatusBar>
     </Grid>

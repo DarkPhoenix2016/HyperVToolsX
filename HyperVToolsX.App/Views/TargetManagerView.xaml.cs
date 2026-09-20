@@ -394,82 +394,34 @@ public partial class TargetManagerView : UserControl
     }
 
     // =========================================================
-    // DISCONNECT
-    // =========================================================
-
-    private void DisconnectSelectedMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        DisconnectSelected();
-    }
-
-    public void DisconnectSelected()
-    {
-        var selectedEntries = TargetDataGrid.SelectedItems
-            .Cast<TargetEntry>()
-            .ToList();
-
-        if (selectedEntries.Count == 0)
-        {
-            ShowInfo("Please select at least one target first.", "Disconnect");
-            return;
-        }
-
-        foreach (var entry in selectedEntries)
-        {
-            ResetEntry(entry);
-        }
-
-        _validationCompleted = false;
-        _collectionCompleted = false;
-
-        _targetsView.Refresh();
-        UpdateTargetStatistics();
-        UpdateActionButtons();
-
-        StatusText.Text = selectedEntries.Count == 1
-            ? $"Disconnected from {selectedEntries[0].Name}."
-            : $"Disconnected {selectedEntries.Count} target(s).";
-    }
-
-    public void DisconnectAll()
-    {
-        if (_targets.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var target in _targets)
-        {
-            ResetEntry(target);
-        }
-
-        _validationCompleted = false;
-        _collectionCompleted = false;
-
-        _targetsView.Refresh();
-        UpdateTargetStatistics();
-        UpdateActionButtons();
-
-        StatusText.Text = "All targets disconnected.";
-    }
-
-    private static void ResetEntry(TargetEntry entry)
-    {
-        entry.Type = TargetType.StandaloneHost;
-        entry.ValidationStatus = TargetValidationStatus.Pending;
-        entry.NameResolved = false;
-        entry.ResolvedAddress = string.Empty;
-        entry.PingSucceeded = false;
-        entry.HyperVConnectionSucceeded = false;
-        entry.IsCluster = false;
-        entry.ClusterName = string.Empty;
-        entry.Result = "Disconnected";
-        entry.ErrorMessage = string.Empty;
-    }
-
-    // =========================================================
     // IMPORT
     // =========================================================
+
+    // ---------------------------------------------------------
+    // Select-all checkbox in the target grid header
+    // ---------------------------------------------------------
+
+    private void SelectAllCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectAllCheckBox.IsChecked == true)
+        {
+            TargetDataGrid.SelectAll();
+        }
+        else
+        {
+            TargetDataGrid.UnselectAll();
+        }
+    }
+
+    private void TargetDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var total = TargetDataGrid.Items.Count;
+        var selected = TargetDataGrid.SelectedItems.Count;
+
+        SelectAllCheckBox.IsChecked = total > 0 && selected == total
+            ? true
+            : selected == 0 ? false : null;
+    }
 
     private void ImportButton_Click(object sender, RoutedEventArgs e)
     {
@@ -937,4 +889,6 @@ public partial class TargetManagerView : UserControl
         UsernameTextBox.IsEnabled = !useCurrentCredentials;
         PasswordBox.IsEnabled = !useCurrentCredentials;
     }
+
+
 }
