@@ -21,6 +21,7 @@
 
 - [Overview](#overview)
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Inventory tabs](#inventory-tabs)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
@@ -72,6 +73,26 @@ for auditing, documentation and troubleshooting.
 - **Data size unit preference** — display sizes as Bytes, KB, MB, GB, TB or PB.
 - **Live log** — a dedicated tab shows every step (resolution, remoting, TrustedHosts, collection) as it happens.
 - **In-memory cache** — the UI reads from a snapshot and can be refreshed independently of collection.
+
+## Screenshots
+
+**vSummary** — one row per VM with state, vCPUs, startup memory, CPU and memory usage, checkpoints, uptime and boot
+time, plus NICs, IP/MAC addresses, VLANs and storage paths (scroll right).
+
+![vSummary tab](docs/screenshots/vsummary.png)
+
+**vHost** — every host with its cluster membership, cluster owner, logical CPUs, VM count, memory and operating system.
+
+![vHost tab](docs/screenshots/vhost.png)
+
+**Target Manager** — add hosts, clusters or IP addresses and validate them stage by stage (DNS, ping, Hyper-V) before
+collecting.
+
+![Target Manager after validation](docs/screenshots/target-manager-validated.png)
+
+Collection runs the targets in parallel and reports per-target results and the elapsed time.
+
+![Target Manager after collection](docs/screenshots/target-manager-collected.png)
 
 ## Inventory tabs
 
