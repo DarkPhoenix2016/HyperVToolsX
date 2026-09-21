@@ -194,23 +194,52 @@ public partial class MainWindow : Window
             _connectionOptions,
             _liveLog);
 
+        // The ScrollViewer keeps every control reachable when the window is
+        // resized below the view's minimum size.
+        var scrollHost = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = targetManagerView
+        };
+
         var targetManagerWindow = new Window
         {
             Title = "HyperVToolsX - Target Manager",
             Width = 1000,
             Height = 780,
-            MinWidth = 1000,
-            MinHeight = 780,
+            MinWidth = 500,
+            MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
             Icon = Icon,
-            Content = targetManagerView,
-            ResizeMode = ResizeMode.NoResize
+            Content = scrollHost,
+            ResizeMode = ResizeMode.CanResize
         };
+
+        // Don't open larger than the available screen area.
+        targetManagerWindow.Width = Math.Min(targetManagerWindow.Width, SystemParameters.WorkArea.Width);
+        targetManagerWindow.Height = Math.Min(targetManagerWindow.Height, SystemParameters.WorkArea.Height);
+
+        // A ScrollViewer measures its content with unbounded space, so give the view the
+        // viewport size (never below its minimum). That keeps the inner grids scrolling
+        // themselves and the action bar pinned instead of the whole page growing.
+        void FitView()
+        {
+            targetManagerView.Width = Math.Max(targetManagerView.MinWidth, scrollHost.ActualWidth);
+            targetManagerView.Height = Math.Max(targetManagerView.MinHeight, scrollHost.ActualHeight);
+        }
+
+        scrollHost.SizeChanged += (_, _) => FitView();
 
         targetManagerWindow.ShowDialog();
 
+        // Clear the explicit size so the next host measures the view afresh.
+        targetManagerView.ClearValue(FrameworkElement.WidthProperty);
+        targetManagerView.ClearValue(FrameworkElement.HeightProperty);
+
         // Detach so the view can be hosted again by the next window.
+        scrollHost.Content = null;
         targetManagerWindow.Content = null;
 
         // Closing the Target Manager after a successful collection loads the

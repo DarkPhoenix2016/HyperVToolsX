@@ -61,6 +61,8 @@ public class CollectionOrchestrator
             return result;
         }
 
+        var collected = new List<HyperVTarget>();
+
         var workerCount =
     WorkerConfiguration.CalculateWorkerCount(
         targetList.Count);
@@ -79,6 +81,19 @@ public class CollectionOrchestrator
             .ToArray();
 
         await Task.WhenAll(workers);
+
+        // A finished collection replaces the previous snapshot, so targets that were removed
+        // or failed this time don't keep showing old records. A cancelled or fully failed run
+        // never gets here with data, so the previous snapshot is left intact.
+        if (collected.Count > 0)
+        {
+            _inventoryCache.Clear();
+
+            foreach (var collectedTarget in collected)
+            {
+                _inventoryCache.UpdateTarget(collectedTarget);
+            }
+        }
 
         result.TotalHosts =
             result.Targets.Sum(target => target.Hosts.Count);
@@ -184,8 +199,10 @@ public class CollectionOrchestrator
         progress,
         cancellationToken);
 
-                _inventoryCache.UpdateTarget(
-                    collectedTarget);
+                lock (syncLock)
+                {
+                    collected.Add(collectedTarget);
+                }
 
                 target.Status =
                     Core.Enums.ConnectionStatus.Connected;

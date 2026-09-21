@@ -4,9 +4,9 @@
              xmlns:conv="clr-namespace:HyperVToolsX.App.Converters"
              xmlns:controls="clr-namespace:HyperVToolsX.App.Controls"
              MinWidth="675"
-             HorizontalAlignment="Center"
-             VerticalAlignment="Center"
-             MinHeight="450" Height="720" Width="950">
+             MinHeight="450"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch">
 
     <UserControl.Resources>
         <conv:BoolToGlyphConverter x:Key="BoolToGlyphConverter"/>
