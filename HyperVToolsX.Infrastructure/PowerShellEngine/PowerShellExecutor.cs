@@ -7,13 +7,22 @@ namespace HyperVToolsX.Infrastructure.PowerShellEngine;
 
 public class PowerShellExecutor
 {
+    // Output is redirected (never a real console), but Windows PowerShell 5.1 still defaults
+    // [Console]::OutputEncoding to the OS's OEM codepage rather than UTF-8. Pin it explicitly so
+    // non-ASCII output (accented VM/host names, notes) round-trips correctly regardless of the
+    // machine's ambient codepage; the parent side pins StandardOutputEncoding to match.
+    private const string StdoutUtf8 =
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ";
+
     private const string StdinBootstrap =
+        StdoutUtf8 +
         "$hvtxIn = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8); " +
         "& ([scriptblock]::Create($hvtxIn.ReadToEnd()))";
 
     // Same, but the first stdin line is a base64 secret that becomes the SecureString $hvtxSecret
     // for the script. The secret never touches disk, the environment or the command line.
     private const string StdinBootstrapWithSecret =
+        StdoutUtf8 +
         "$ErrorActionPreference = 'Stop'; " +
         "$hvtxIn = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8); " +
         "$hvtxPlain = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($hvtxIn.ReadLine())); " +
@@ -149,7 +158,13 @@ public class PowerShellExecutor
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            // Must match the child's [Console]::OutputEncoding (set to UTF8 by the bootstrap above),
+            // otherwise decoding falls back to the parent process's ambient console codepage, which
+            // can silently differ between machines (this is what a CI runner surfaced: "café" became
+            // "caf├⌐" when decoded as codepage 437 instead of UTF-8).
+            StandardOutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            StandardErrorEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
         };
 
         // The script travels over stdin, never through a file: a file in %TEMP% could be

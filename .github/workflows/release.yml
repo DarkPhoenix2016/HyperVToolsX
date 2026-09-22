@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore HyperVToolsX.slnx
+
+      - name: Build
+        run: dotnet build HyperVToolsX.slnx -c Release --no-restore
+
+      - name: Test
+        # Same exclusion as build.yml — see RELEASING.md step 4 for running the full suite
+        # (including the Hyper-V-only tests) on a real Hyper-V host before tagging a release.
+        run: >
+          dotnet test HyperVToolsX.Tests -c Release --no-build
+          --filter "Category!=RequiresHyperV"
+
+      - name: Publish
+        run: dotnet publish HyperVToolsX.App -c Release -p:PublishProfile=FolderProfile
+
+      - name: Compute SHA-256
+        id: hash
+        shell: pwsh
+        run: |
+          $exe = "HyperVToolsX.App\bin\publish\win-x64\HyperVToolsX.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          "$hash *HyperVToolsX.exe" | Out-File -Encoding ascii HyperVToolsX.exe.sha256
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Write release manifest
+        shell: pwsh
+        run: |
+          $manifest = [ordered]@{
+            product          = "HyperVToolsX"
+            version          = "${{ github.ref_name }}".TrimStart("v")
+            platform         = "win-x64"
+            framework        = "net10.0-windows10.0.17763.0"
+            selfContained    = $true
+            singleFile       = $true
+            readyToRun       = $true
+            sourceRepository = "https://github.com/${{ github.repository }}"
+            sourceTag        = "${{ github.ref_name }}"
+            commit           = "${{ github.sha }}"
+            artifact         = "HyperVToolsX.exe"
+            sha256           = "${{ steps.hash.outputs.sha256 }}"
+            signed           = $false
+            builtBy          = "${{ github.workflow }} (${{ github.run_id }})"
+          }
+          $manifest | ConvertTo-Json | Out-File -Encoding utf8 release-manifest.json
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          body: |
+            ## Code signing policy
+
+            Free code signing provided by SignPath.io, certificate by SignPath Foundation. See the
+            [Code signing policy](https://github.com/${{ github.repository }}#code-signing-policy) for the
+            signing team, source/build integrity and privacy commitments.
+
+            **This draft attaches an unsigned build.** Before publishing: sign `HyperVToolsX.exe` per
+            [RELEASING.md](https://github.com/${{ github.repository }}/blob/master/RELEASING.md), replace the
+            attached asset with the signed one, recompute its SHA-256, and update the hash below.
+
+            ### SHA-256 (unsigned build)
+
+            ```
+            ${{ steps.hash.outputs.sha256 }}
+            ```
+          files: |
+            HyperVToolsX.App/bin/publish/win-x64/HyperVToolsX.exe
+            HyperVToolsX.exe.sha256
+            release-manifest.json

@@ -9,6 +9,7 @@ namespace HyperVToolsX.Tests;
 public class TargetValidatorTests
 {
     [Fact]
+    [Trait("Category", "RequiresHyperV")]
     public async Task LocalHyperVHost_ShouldPassValidation()
     {
         var executor = new PowerShellExecutor();

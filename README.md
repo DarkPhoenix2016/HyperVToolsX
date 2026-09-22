@@ -12,6 +12,7 @@
 ![UI](https://img.shields.io/badge/UI-WPF-blueviolet)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
+[![Build](https://github.com/DarkPhoenix2016/HyperVToolsX/actions/workflows/build.yml/badge.svg)](https://github.com/DarkPhoenix2016/HyperVToolsX/actions/workflows/build.yml)
 
 </div>
 
@@ -34,6 +35,7 @@
 - [Repository layout](#repository-layout)
 - [Building, testing and publishing](#building-testing-and-publishing)
 - [Security notes](#security-notes)
+- [Code signing policy](#code-signing-policy)
 - [Project status and roadmap](#project-status-and-roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -409,7 +411,15 @@ dotnet test HyperVToolsX.Tests
 ```
 
 > The provider and validator tests exercise the local machine (`GetLocalHost`, `GetLocalVirtualMachines`, local target
-> validation), so they require a Windows machine with the Hyper-V role and module, and elevation.
+> validation), so they require a Windows machine with the Hyper-V role and module, and elevation. They're tagged
+> `Category=RequiresHyperV` and excluded from CI (`dotnet test --filter "Category!=RequiresHyperV"`), which runs on
+> a hosted runner without Hyper-V; run the full suite on a Hyper-V machine before releasing (see
+> [RELEASING.md](RELEASING.md)).
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds and runs that filtered suite on every push and
+pull request against `master`/`development`. [`.github/workflows/release.yml`](.github/workflows/release.yml)
+builds, tests and publishes on a `v*` tag push, opening a draft GitHub Release with the unsigned artifact — see
+[RELEASING.md](RELEASING.md) for how a release gets signed and published from there.
 
 ### Publishing
 
@@ -446,6 +456,47 @@ elevated and loads the `Templates` folder beside the executable.
   TrustedHosts and the certificate-skip options.
 - The application requires administrator elevation.
 
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability, and [PRIVACY.md](PRIVACY.md) for what HyperVToolsX
+does and does not do with the data it collects.
+
+## Code signing policy
+
+Official HyperVToolsX release binaries are built from the source code in this repository and published only through
+the project's [GitHub Releases](https://github.com/DarkPhoenix2016/HyperVToolsX/releases) page. Binaries obtained
+from any other location are not official HyperVToolsX releases.
+
+**Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).**
+
+### Signing team
+
+| Role | Name |
+| --- | --- |
+| Author / committer | Charitha Piyumal |
+| Reviewer | Charitha Piyumal |
+| Approver | Charitha Piyumal |
+
+HyperVToolsX is currently a single-maintainer project; the same person authors, reviews and approves releases. As
+additional contributors join, reviewer and approver responsibilities will be documented here as they change.
+
+### Source and build integrity
+
+- Only binaries built from the source code maintained in this repository are submitted for signing.
+- Third-party libraries bundled with the application (see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)) are not
+  signed under the HyperVToolsX signing subscription; their own upstream signatures, if any, apply.
+- Every release intended for signing requires explicit, manual approval before signing.
+
+### Privacy
+
+HyperVToolsX does not transmit telemetry, analytics or usage data to the developer or to any third party. It
+communicates only with the Hyper-V hosts, clusters and other endpoints explicitly configured by the person running
+it. See [PRIVACY.md](PRIVACY.md) for details.
+
+### Security
+
+HyperVToolsX does not include functionality intended to identify, exploit or circumvent security vulnerabilities or
+controls in Hyper-V hosts, clusters or any other system. See [Security notes](#security-notes) and
+[SECURITY.md](SECURITY.md).
+
 ## Project status and roadmap
 
 **Release (`1.0.0`).** The collection pipeline and the inventory tabs are in place. See the [changelog](CHANGELOG.md) for version history.
@@ -462,10 +513,11 @@ elevated and loads the `Templates` folder beside the executable.
 ## Contributing
 
 Issues and pull requests are welcome. Development happens on the `development` branch; `master` receives merges
-from it. Please keep changes focused, follow the existing code style, and run the test suite before submitting.
+from it. Please keep changes focused, follow the existing code style, and run the test suite before submitting. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for details, and [RELEASING.md](RELEASING.md) for how releases are cut.
 
 ## License
 
-Released under the [MIT License](HyperVToolsX.App/LICENSE.txt).
+Released under the [MIT License](LICENSE).
 
 Copyright © 2026 Charitha Piyumal

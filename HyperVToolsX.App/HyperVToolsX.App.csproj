@@ -17,6 +17,8 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <InformationalVersion>1.0.0</InformationalVersion>
+    <!-- Keep InformationalVersion exactly the release version; don't let the SDK append a +<commit-sha> suffix -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- Publisher / Windows file information -->
     <Product>HyperVToolsX</Product>
