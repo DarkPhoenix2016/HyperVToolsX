@@ -7,6 +7,7 @@ namespace HyperVToolsX.Tests;
 public class HyperVProviderTests
 {
     [Fact]
+    [Trait("Category", "RequiresHyperV")]
     public async Task GetLocalHost_ShouldReturnHyperVHost()
     {
         var executor = new PowerShellExecutor();
@@ -20,6 +21,7 @@ public class HyperVProviderTests
         Assert.True(host.TotalMemoryBytes > 0);
     }
     [Fact]
+    [Trait("Category", "RequiresHyperV")]
     public async Task GetLocalVirtualMachines_ShouldReturnCollection()
     {
         var executor = new PowerShellExecutor();

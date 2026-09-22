@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+    branches: [master, development]
+  pull_request:
+    branches: [master, development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore HyperVToolsX.slnx
+
+      - name: Build
+        run: dotnet build HyperVToolsX.slnx -c Release --no-restore
+
+      - name: Test
+        # Excludes tests tagged RequiresHyperV: HyperVProviderTests and the local-host case in
+        # TargetValidatorTests need a real Hyper-V host and elevation, which hosted runners don't have.
+        # Run the full suite (no --filter) on a Hyper-V-enabled machine before releasing.
+        run: >
+          dotnet test HyperVToolsX.Tests -c Release --no-build
+          --filter "Category!=RequiresHyperV"
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          retention-days: 14
